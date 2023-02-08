@@ -1,0 +1,90 @@
+module Synfini.Keccak.Types where
+
+import DA.Map (Map)
+import qualified DA.Optional as O
+import qualified DA.Map as Map
+import DA.Foldable (Foldable, toList)
+import qualified DA.Text as TX
+
+type Vector a = Map Int a
+
+type Matrix a = Vector (Vector a)
+
+size : Vector a -> Int
+size = Map.size
+
+toVector : Foldable t => t a -> Vector a
+toVector xs =
+  let l = toList xs in
+  Map.fromList (zip [0..length l - 1] l)
+
+vectorToList : Vector a -> [a]
+vectorToList = fmap snd . Map.toList
+
+takeVector : Int -> Vector a -> Vector a
+takeVector n v = toVector (fmap snd . take n $ Map.toList v)
+
+concatVectors : [Vector a] -> Vector a
+concatVectors vs = toVector . fmap snd $ concatMap Map.toList vs
+
+updateMatrix : Int -> Int -> a -> Matrix a -> Matrix a
+updateMatrix x y v = Map.alter u x
+  where
+    u None = Some $ Map.fromList [(y, v)]
+    u (Some r) = Some $ Map.insert y v r
+
+listToMatrix : [((Int, Int), a)] -> Matrix a
+listToMatrix l = foldl addElem Map.empty l
+  where
+    addElem m ((x, y), value) = Map.alter (addElemInRow y value) x m
+
+    addElemInRow y value None = Some (Map.fromList [(y, value)])
+    addElemInRow y value (Some row) = Some (Map.insert y value row)
+
+matrixToList : Matrix a -> [((Int, Int), a)]
+matrixToList m = do
+  (x, row) <- Map.toList m
+  (y, value) <- Map.toList row
+  pure ((x, y), value)
+
+(#) : Vector a -> Int -> a
+m # k = O.fromSomeNote "Vector element not found" (Map.lookup k m)
+infixl 3 #
+
+(##) : Matrix a -> (Int, Int) -> a
+m ## (x, y) = (m # x) # y
+infixl 3 ##
+
+newtype Lane = Lane (Numeric 0)
+
+zeroLane : Lane
+zeroLane = Lane 0.0
+
+fromHex : Text -> Lane
+fromHex = undefined
+
+xor : Lane -> Lane -> Lane
+xor = undefined
+
+rol : Lane -> Int -> Int -> Lane
+rol = undefined
+
+inv : Lane -> Lane
+inv = undefined
+
+(&) : Lane -> Lane -> Lane
+a & b = undefined
+
+type Byte = Int
+
+bytes2Lane : [Byte] -> Lane
+bytes2Lane = undefined
+
+lane2Bytes : Lane -> Int -> [Byte]
+lane2Bytes = undefined
+
+str2Bytes : Text -> Vector Byte
+str2Bytes = toVector . TX.toCodePoints
+
+bytes2Str : Vector Byte -> Text
+bytes2Str = TX.fromCodePoints . vectorToList
