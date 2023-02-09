@@ -35,7 +35,7 @@ rangeWH = do
   pure (x, y)
 
 zero : Matrix Lane
-zero = toVector (replicate stateH (toVector (replicate stateW zeroLane)))
+zero = listToVector (replicate stateH (listToVector (replicate stateW zeroLane)))
 
 mkKeccackSettings : CanAssert a => Int -> Int -> Int -> a KeccakSettings
 mkKeccackSettings bitrate b outputBits = do
@@ -76,11 +76,11 @@ multiratePadding : Int -> Int -> Vector Byte
 multiratePadding usedBytes alignBytes =
   let l = alignBytes - usedBytes in
   let padlen = if l == 0 then alignBytes else l in
-  toVector $
+  listToVector $
     if padlen == 1 then
-      []
+      [0x81]
     else
-      []
+      [0x01] <> replicate (padlen - 2) 0x00 <> [0x80]
 
 doKeccak : forall a. KeccakAction a =>
            KeccakSettings ->
@@ -89,32 +89,29 @@ doKeccak : forall a. KeccakAction a =>
            Text ->
            a Text
 doKeccak ks padfn permfn input = do
-  let inputBytes = str2Bytes input
-  spongeAbsorb inputBytes
-  let finalBuffer : Vector Byte = undefined
-  hashBytes <- hashDigest finalBuffer
-  pure (bytes2Str hashBytes)
+  let buffer = textToBytes input
+  spongeAbsorb buffer
+  let finalBufferOffset = size buffer - ((size buffer) % ks.bitrateBytes)
+  hashBytes <- hashDigest finalBufferOffset buffer
+  pure (bytesToText hashBytes)
 
   where
     absorb : Int -> Vector Byte -> a ()
+    --absorb offset bb | size bb - offset < ks.bitrateBytes
     absorb offset bb = do
-      -- if Map.size bb /= ks.bitrateBytes then
-      --   error "Bit rate bytes does not match"
-      -- else do
       let findInBb idx = if idx >= ks.bitrateBytes then 0 else bb # (idx + offset)
 
       sequence_ do
         y <- rangeH
         x <- rangeW
-        let i = y * stateH + x
+        let i = (y * stateH + x) * 8
         pure do
-          (x, y) <--^ bytes2Lane (findInBb <$> [i..i+7])
+          (x, y) <--^ bytesToLane (findInBb <$> [i..i+7])
 
-    hashDigest : Vector Byte -> a (Vector Byte)
-    hashDigest buffer = do
-      let digestSize = bitsToBytes ks.outputBits
-      spongeAbsorbFinal buffer
-      spongeSqueeze digestSize
+    hashDigest : Int -> Vector Byte -> a (Vector Byte)
+    hashDigest offset buffer = do
+      spongeAbsorbFinal offset buffer
+      spongeSqueeze (bitsToBytes ks.outputBits)
 
     getBytes : Int -> a (Vector Byte)
     getBytes lim = do
@@ -123,25 +120,25 @@ doKeccak ks padfn permfn input = do
         x <- rangeW
         pure do
           lane <- getLane (x, y)
-          pure $ lane2Bytes lane ks.laneW
-      pure . toVector . take lim $ concat l
+          pure $ laneToBytes lane ks.laneW
+      pure . listToVector . take lim $ concat l
 
     spongeAbsorb : Vector Byte -> a ()
     spongeAbsorb buffer = do
-      --let buffer = str2Bytes str
       forA_ [0,ks.bitrateBytes..(size buffer - ks.bitrateBytes)] $ \offset -> do
-        absorb offset buffer
+        --absorb offset buffer
+        spongeAbsorbBlock offset buffer
         permfn ks
 
-    spongeAbsorbBlock : Vector Byte -> a ()
-    spongeAbsorbBlock bb = do
-      absorb 0 bb
+    spongeAbsorbBlock : Int -> Vector Byte -> a ()
+    spongeAbsorbBlock offset bb = do
+      absorb offset bb
       permfn ks
 
-    spongeAbsorbFinal : Vector Byte -> a ()
-    spongeAbsorbFinal buffer = do
-      let padded = concatVectors [buffer, padfn (size buffer) ks.bitrateBytes]
-      spongeAbsorbBlock padded
+    spongeAbsorbFinal : Int -> Vector Byte -> a ()
+    spongeAbsorbFinal offset buffer = do
+      let padded = concatVectors [dropVector offset buffer, padfn (size buffer) ks.bitrateBytes]
+      spongeAbsorbBlock 0 padded
 
     spongeSqueeze : Int -> a (Vector Byte)
     spongeSqueeze l = do
@@ -152,18 +149,18 @@ doKeccak ks padfn permfn input = do
 
     spongeSqueezeOnce : a (Vector Byte)
     spongeSqueezeOnce = do
-      z <- getBytes ks.bitrateBytes
+      rc <- getBytes ks.bitrateBytes
       permfn ks
-      pure z
+      pure rc
 
 roundConstants : [Lane]
 roundConstants = fromHex <$> [
-    "0x0000000000000001", "0x0000000000008082", "0x800000000000808A", "0x8000000080008000",
-    "0x000000000000808B", "0x0000000080000001", "0x8000000080008081", "0x8000000000008009",
-    "0x000000000000008A", "0x0000000000000088", "0x0000000080008009", "0x000000008000000A",
-    "0x000000008000808B", "0x800000000000008B", "0x8000000000008089", "0x8000000000008003",
-    "0x8000000000008002", "0x8000000000000080", "0x000000000000800A", "0x800000008000000A",
-    "0x8000000080008081", "0x8000000000008080", "0x0000000080000001", "0x8000000080008008"
+    "0000000000000001", "0000000000008082", "800000000000808A", "8000000080008000",
+    "000000000000808B", "0000000080000001", "8000000080008081", "8000000000008009",
+    "000000000000008A", "0000000000000088", "0000000080008009", "000000008000000A",
+    "000000008000808B", "800000000000008B", "8000000000008089", "8000000000008003",
+    "8000000000008002", "8000000000000080", "000000000000800A", "800000008000000A",
+    "8000000080008081", "8000000000008080", "0000000080000001", "8000000080008008"
   ]
 
 rotationConstants : Matrix Int
@@ -176,7 +173,7 @@ rotationConstants =
           [ 18,  2, 61, 56, 14 ]
         ]
   in
-  toVector (toVector <$> arr)
+  listToVector (listToVector <$> arr)
 
 reduce : Foldable t => (a -> a -> a) -> t a -> a
 reduce f t =
@@ -189,10 +186,10 @@ keccak_f : KeccakAction a => KeccakSettings -> a ()
 keccak_f ks = mapA_ round roundConstants 
   where
     round rc = do
-      c : Vector Lane <- fmap toVector . forA rangeH $ \x -> do
+      c : Vector Lane <- fmap listToVector . forA rangeH $ \x -> do
         r <- getRow x
         pure $ reduce xor r
-      let d : Vector Lane = toVector do
+      let d : Vector Lane = listToVector do
             x <- rangeW
             pure $
               (c # (x - 1) % stateW) `xor`
@@ -206,7 +203,8 @@ keccak_f ks = mapA_ round roundConstants
             (y % stateW, (2 * x + 3 * y) % stateH),
             rol lane (rotationConstants ## (y, x)) ks.laneW
           )
-      let b : Matrix Lane = listToMatrix (bElems <> matrixToList zero)
+      -- Matrix elements are zero by default, or use those in bElems if they are provided
+      let b : Matrix Lane = listToMatrix (matrixToList zero <> bElems)
 
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <-- (b ## (x, y)) `xor`
@@ -217,7 +215,12 @@ keccak_f ks = mapA_ round roundConstants
 preset : CanAssert a => Int -> Int -> Int -> a (Text -> Text)
 preset bitrateBits capacityBits outputBits = do
   let b = bitrateBits + capacityBits
-  assertMsg "Must have valid bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
+  assertMsg "Must have an accepted number of bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
   assertMsg "Output bits must be a whole number of bytes" (outputBits % 8 == 0)
   settings <- mkKeccackSettings bitrateBits b outputBits
   pure $ \input -> S.evalState (doKeccak settings multiratePadding keccak_f input) zero
+
+keccak256 : Text -> Text
+keccak256 = case preset 1088 512 256 of
+  Left err -> error ("Keccak internal error: " <> err)
+  Right h -> h

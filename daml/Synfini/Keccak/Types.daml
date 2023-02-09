@@ -3,7 +3,6 @@ module Synfini.Keccak.Types where
 import DA.Map (Map)
 import qualified DA.Optional as O
 import qualified DA.Map as Map
-import DA.Foldable (Foldable, toList)
 import qualified DA.Text as TX
 
 type Vector a = Map Int a
@@ -13,19 +12,20 @@ type Matrix a = Vector (Vector a)
 size : Vector a -> Int
 size = Map.size
 
-toVector : Foldable t => t a -> Vector a
-toVector xs =
-  let l = toList xs in
-  Map.fromList (zip [0..length l - 1] l)
+listToVector : [a] -> Vector a
+listToVector l = Map.fromList (zip [0..length l - 1] l)
 
 vectorToList : Vector a -> [a]
 vectorToList = fmap snd . Map.toList
 
 takeVector : Int -> Vector a -> Vector a
-takeVector n v = toVector (fmap snd . take n $ Map.toList v)
+takeVector n v = listToVector (fmap snd . take n $ Map.toList v)
+
+dropVector : Int -> Vector a -> Vector a
+dropVector n v = listToVector (fmap snd . drop n $ Map.toList v)
 
 concatVectors : [Vector a] -> Vector a
-concatVectors vs = toVector . fmap snd $ concatMap Map.toList vs
+concatVectors vs = listToVector . fmap snd $ concatMap Map.toList vs
 
 updateMatrix : Int -> Int -> a -> Matrix a -> Matrix a
 updateMatrix x y v = Map.alter u x
@@ -48,43 +48,96 @@ matrixToList m = do
   pure ((x, y), value)
 
 (#) : Vector a -> Int -> a
-m # k = O.fromSomeNote "Vector element not found" (Map.lookup k m)
+m # k = O.fromSomeNote ("Vector element not found at index: " <> show k) (Map.lookup k m)
 infixl 3 #
 
 (##) : Matrix a -> (Int, Int) -> a
 m ## (x, y) = (m # x) # y
 infixl 3 ##
 
-newtype Lane = Lane (Numeric 0)
-
-zeroLane : Lane
-zeroLane = Lane 0.0
-
-fromHex : Text -> Lane
-fromHex = undefined
-
-xor : Lane -> Lane -> Lane
-xor = undefined
-
-rol : Lane -> Int -> Int -> Lane
-rol = undefined
-
-inv : Lane -> Lane
-inv = undefined
-
-(&) : Lane -> Lane -> Lane
-a & b = undefined
+-- Binary values where the most significant bit is the first element in the list
+type Lane = [Bool]
 
 type Byte = Int
 
-bytes2Lane : [Byte] -> Lane
-bytes2Lane = undefined
+zeroLane : Lane
+zeroLane = []
 
-lane2Bytes : Lane -> Int -> [Byte]
-lane2Bytes = undefined
+pad : Int -> Lane -> Lane
+pad n l =
+  let lenDiff = length l - n in
+  if lenDiff >= 0 then
+    drop lenDiff l
+  else
+    replicate (-lenDiff) False <> l
 
-str2Bytes : Text -> Vector Byte
-str2Bytes = toVector . TX.toCodePoints
+-- Returns all permutations of bits of length n in ascending order:
+-- 0...00, 0...01, 0...10, 00...11, ..., 1...1
+bitPermutations : Int -> [Lane]
+bitPermutations n | n <= 0 = []
+bitPermutations n =
+  let p = bitPermutations (n - 1) in
+  ((False ::) <$> p) <> ((True ::) <$> p)
 
-bytes2Str : Vector Byte -> Text
-bytes2Str = TX.fromCodePoints . vectorToList
+nibblePermutations : [Lane]
+nibblePermutations = bitPermutations 4
+
+bytePermutations : [Lane]
+bytePermutations = bitPermutations 8
+
+hexUniChars : [Int]
+hexUniChars = [48..57] <> -- 0 to 9
+  [65..70] -- A to F
+charBoolMap : Map Int Lane
+charBoolMap = Map.fromList (zip hexUniChars nibblePermutations)
+
+byteValues : [Byte]
+byteValues = [0..2^7]
+byteBoolMap : Map Byte Lane
+byteBoolMap = Map.fromList (zip byteValues bytePermutations)
+
+fromHex : Text -> Lane
+fromHex =
+  concatMap (\char -> O.fromSomeNote ("Not a valid hex character: " <> show char) (Map.lookup char charBoolMap)) .
+  TX.toCodePoints
+
+xor : Lane -> Lane -> Lane
+l `xor` m =
+  let maxLen = max (length l) (length m) in
+  zipWith xorBits (pad maxLen l) (pad maxLen m)
+
+  where
+    xorBits True False = True
+    xorBits False True = True
+    xorBits _ _ = False
+
+rol : Lane -> Int -> Int -> Lane
+rol l left bits =
+  let padded = pad bits l in
+  drop left l <> take left l
+
+inv : Lane -> Lane
+inv = fmap not
+
+(&) : Lane -> Lane -> Lane
+a & b = zipWith (&&) a b
+
+bytesToLane : [Byte] -> Lane
+bytesToLane = concatMap (\byte -> O.fromSomeNote ("Not a valid byte: " <> show byte) (Map.lookup byte byteBoolMap))
+
+chunksOf : Int -> [a] -> [[a]]
+chunksOf n [] = []
+chunksOf n l = take n l :: chunksOf n (drop n l)
+
+laneToBytes : Lane -> Int -> [Byte]
+laneToBytes l n =
+  bitsToByte <$> chunksOf 8 (pad n l)
+
+  where
+    bitsToByte bits = sum $ zipWith (\bit idx -> if bit then 2^idx else 0) bits [7, 6..0]
+
+textToBytes : Text -> Vector Byte
+textToBytes = listToVector . TX.toCodePoints
+
+bytesToText : Vector Byte -> Text
+bytesToText = TX.fromCodePoints . vectorToList
