@@ -1,0 +1,6 @@
+module Synfini.Keccak where
+
+import Synfini.Keccak.Internal
+
+keccak256 : Text -> Text
+keccak256 = preset (keccakSettings 1088 512 256)

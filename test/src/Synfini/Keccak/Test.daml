@@ -1,0 +1,10 @@
+module Synfini.Keccak.Test where
+
+import DA.Assert
+import Daml.Script
+import Synfini.Keccak
+import Synfini.Keccak.Internal.Data
+
+test1 : Script ()
+test1 = do
+  keccak256 "abc" === "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"

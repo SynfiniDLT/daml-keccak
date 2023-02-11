@@ -1,12 +1,24 @@
-module Synfini.Keccak where
+module Synfini.Keccak.Internal (
+  keccak_f,
+  KeccakSettings,
+  keccakSettings,
+  zeroState,
+  preset
+) where
 
 import qualified DA.Action.State.Class as S
-import Synfini.Keccak.Types
+import Synfini.Keccak.Internal.Data
 import DA.Foldable (sequence_, forA_, toList, Foldable, mapA_)
 import qualified DA.Action.State as S
+import DA.Math (logBase)
+import DA.Action (replicateA)
 
 bitsToBytes : Int -> Int
 bitsToBytes x = (x + 7) / 8
+
+-- data StateSettings = StateSettings
+--   with
+
 
 data KeccakSettings = KeccakSettings
   with
@@ -21,11 +33,13 @@ data KeccakSettings = KeccakSettings
 stateW : Int
 stateW = 5
 
+rangeW : [Int]
 rangeW = [0..stateW - 1]
 
 stateH : Int
 stateH = 5
 
+rangeH : [Int]
 rangeH = [0..stateH - 1] 
 
 rangeWH : [(Int, Int)]
@@ -34,21 +48,41 @@ rangeWH = do
   y <- rangeH
   pure (x, y)
 
-zero : Matrix Lane
-zero = listToVector (replicate stateH (listToVector (replicate stateW zeroLane)))
+zeroState : Matrix Lane
+zeroState = listToVector (replicate stateH (listToVector (replicate stateW zeroLane)))
 
-mkKeccackSettings : CanAssert a => Int -> Int -> Int -> a KeccakSettings
-mkKeccackSettings bitrate b outputBits = do
-  assertMsg "Bit rate must be a multiple of 8" (bitrate % 8 == 0)
-  assertMsg "b must be a multiple of 25" (b % 25 == 0)
-  pure KeccakSettings with
-    bitrate
-    b
-    bitrateBytes = bitsToBytes bitrate
-    laneW = b / 25
-    outputBits
+-- mkKeccackSettings : CanAssert a => Int -> Int -> Int -> a KeccakSettings
+-- mkKeccackSettings bitrate b outputBits = do
+--   assertMsg "Bit rate must be a multiple of 8" (bitrate `mod` 8 == 0)
+--   assertMsg "b must be a multiple of 25" (b `mod` 25 == 0)
+--   pure KeccakSettings with
+--     bitrate
+--     b
+--     bitrateBytes = bitsToBytes bitrate
+--     laneW = b / 25
+--     outputBits
     -- s = zero
     -- buffer = Map.empty
+
+-- Generate keccak settings (will fail on invalid settings)
+keccakSettings : Int  -> Int -> Int -> KeccakSettings
+keccakSettings bitrateBits capacityBits outputBits =
+  let mk = do
+        let b = bitrateBits + capacityBits
+        assertMsg "Must have an accepted number of bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
+        assertMsg "Output bits must be a whole number of bytes" (outputBits `mod` 8 == 0)
+        assertMsg "Bit rate must be a multiple of 8" (bitrateBits `mod` 8 == 0)
+        assertMsg "b must be a multiple of 25" (b `mod` 25 == 0)
+        pure KeccakSettings with
+          bitrate = bitrateBits
+          b
+          bitrateBytes = bitsToBytes bitrateBits
+          laneW = b / 25
+          outputBits
+  in
+  case mk of
+    Left err -> error ("Invalid keccak settings: " <> err)
+    Right s -> s
 
 type KeccakAction a = (Action a, S.ActionState (Matrix Lane) a)
 
@@ -85,13 +119,15 @@ multiratePadding usedBytes alignBytes =
 doKeccak : forall a. KeccakAction a =>
            KeccakSettings ->
            (Int -> Int -> Vector Byte) ->
-           (KeccakSettings -> a ()) ->
+           (Int -> a ()) ->
            Text ->
            a Text
 doKeccak ks padfn permfn input = do
   let buffer = textToBytes input
   spongeAbsorb buffer
-  let finalBufferOffset = size buffer - ((size buffer) % ks.bitrateBytes)
+  debug $ "size buffer: " <> show (vectorSize buffer)
+  let finalBufferOffset = vectorSize buffer - ((vectorSize buffer) `mod` ks.bitrateBytes)
+  debug $ "final buffer offset: " <> show finalBufferOffset
   hashBytes <- hashDigest finalBufferOffset buffer
   pure (bytesToText hashBytes)
 
@@ -105,12 +141,14 @@ doKeccak ks padfn permfn input = do
         y <- rangeH
         x <- rangeW
         let i = (y * stateH + x) * 8
+        debug "got here"
         pure do
           (x, y) <--^ bytesToLane (findInBb <$> [i..i+7])
 
     hashDigest : Int -> Vector Byte -> a (Vector Byte)
     hashDigest offset buffer = do
       spongeAbsorbFinal offset buffer
+      debug "absorbed final"
       spongeSqueeze (bitsToBytes ks.outputBits)
 
     getBytes : Int -> a (Vector Byte)
@@ -120,37 +158,38 @@ doKeccak ks padfn permfn input = do
         x <- rangeW
         pure do
           lane <- getLane (x, y)
-          pure $ laneToBytes lane ks.laneW
+          pure $ laneToBytes ks.laneW lane
       pure . listToVector . take lim $ concat l
 
     spongeAbsorb : Vector Byte -> a ()
     spongeAbsorb buffer = do
-      forA_ [0,ks.bitrateBytes..(size buffer - ks.bitrateBytes)] $ \offset -> do
+      forA_ [0,ks.bitrateBytes..(vectorSize buffer - ks.bitrateBytes)] $ \offset -> do
         --absorb offset buffer
         spongeAbsorbBlock offset buffer
-        permfn ks
+        permfn ks.laneW
 
     spongeAbsorbBlock : Int -> Vector Byte -> a ()
     spongeAbsorbBlock offset bb = do
       absorb offset bb
-      permfn ks
+      debug "did absorb"
+      permfn ks.laneW
 
     spongeAbsorbFinal : Int -> Vector Byte -> a ()
     spongeAbsorbFinal offset buffer = do
-      let padded = concatVectors [dropVector offset buffer, padfn (size buffer) ks.bitrateBytes]
+      let padded = concatVectors [dropVector offset buffer, padfn (vectorSize buffer) ks.bitrateBytes]
+      debug "did pad"
       spongeAbsorbBlock 0 padded
 
     spongeSqueeze : Int -> a (Vector Byte)
     spongeSqueeze l = do
-      let iters = l / ks.bitrateBytes + (if l % ks.bitrateBytes == 0 then 0 else 1)
-      z <- fmap concatVectors . forA [1..iters] $ \_ -> do
-        spongeSqueezeOnce
+      let iters = l / ks.bitrateBytes + (if l `mod` ks.bitrateBytes == 0 then 0 else 1)
+      z <- fmap concatVectors . replicateA iters $ spongeSqueezeOnce
       pure (takeVector l z)
 
     spongeSqueezeOnce : a (Vector Byte)
     spongeSqueezeOnce = do
       rc <- getBytes ks.bitrateBytes
-      permfn ks
+      permfn ks.laneW
       pure rc
 
 roundConstants : [Lane]
@@ -182,9 +221,26 @@ reduce f t =
     x :: xs -> foldl f x xs
     [] -> error "Unexpected empty list"
 
-keccak_f : KeccakAction a => KeccakSettings -> a ()
-keccak_f ks = mapA_ round roundConstants 
+mod : Int -> Int -> Int
+num `mod` denom =
+  let rem = num % denom in
+  if num >= 0 then
+    rem
+  else
+    denom + rem
+
+keccak_f : forall a. KeccakAction a => Int -> a ()
+keccak_f laneW = do
+  debug ("log value = " <> show (logBase 2.0 (intToDecimal laneW)))
+  -- In daml, decimal values are not represened as binary numbers, therefore taking log in base 2 is not always 100%
+  -- accurate e.g. logBase 2.0 64.0 == 5.9999999997. As a work around we add a small value to the log result to account
+  -- for this issue.
+  let l = floor (logBase 2.0 (intToDecimal laneW) + 5.0 * (10.0^(-10)))
+  debug ("num rounds = " <> show (12 + 2 * l))
+  mapA_ round (take (12 + 2 * l) roundConstants)
+
   where
+    round : Lane -> a ()
     round rc = do
       c : Vector Lane <- fmap listToVector . forA rangeH $ \x -> do
         r <- getRow x
@@ -192,35 +248,34 @@ keccak_f ks = mapA_ round roundConstants
       let d : Vector Lane = listToVector do
             x <- rangeW
             pure $
-              (c # (x - 1) % stateW) `xor`
-              (rol (c # (x + 1) % stateW) 1 ks.laneW)
+              (c # ((x - 1) `mod` stateW)) `xor`
+              (rol (c # ((x + 1) `mod` stateW)) 1 laneW)
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <--^ (d # x)
-
       bElems <- forA rangeWH $ \(x, y) -> do
         lane <- getLane (x, y)
         pure (
-            (y % stateW, (2 * x + 3 * y) % stateH),
-            rol lane (rotationConstants ## (y, x)) ks.laneW
+            (y `mod` stateW, (2 * x + 3 * y) `mod` stateH),
+            rol lane (rotationConstants ## (y, x)) laneW
           )
       -- Matrix elements are zero by default, or use those in bElems if they are provided
-      let b : Matrix Lane = listToMatrix (matrixToList zero <> bElems)
-
+      let b : Matrix Lane = listToMatrix (matrixToList zeroState <> bElems)
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <-- (b ## (x, y)) `xor`
-          ((inv (b ## ((x + 1) % stateW, y))) & (b ## ((x + 2) % stateW, y)))
-
+          ((inv (b ## ((x + 1) `mod` stateW, y))) & (b ## ((x + 2) `mod` stateW, y)))
       (0, 0) <--^ rc
 
-preset : CanAssert a => Int -> Int -> Int -> a (Text -> Text)
-preset bitrateBits capacityBits outputBits = do
-  let b = bitrateBits + capacityBits
-  assertMsg "Must have an accepted number of bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
-  assertMsg "Output bits must be a whole number of bytes" (outputBits % 8 == 0)
-  settings <- mkKeccackSettings bitrateBits b outputBits
-  pure $ \input -> S.evalState (doKeccak settings multiratePadding keccak_f input) zero
+preset : KeccakSettings -> Text -> Text
+preset ks input =
+  S.evalState (doKeccak ks multiratePadding keccak_f input) zeroState
 
-keccak256 : Text -> Text
-keccak256 = case preset 1088 512 256 of
-  Left err -> error ("Keccak internal error: " <> err)
-  Right h -> h
+  -- let genKeccak = do
+  --       let b = bitrateBits + capacityBits
+  --       assertMsg "Must have an accepted number of bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
+  --       assertMsg "Output bits must be a whole number of bytes" (outputBits `mod` 8 == 0)
+  --       settings <- mkKeccackSettings bitrateBits b outputBits
+  --       pure $ \input -> S.evalState (doKeccak settings multiratePadding keccak_f input) zeroState
+  -- in
+  -- case genKeccak of
+  --   Left err -> error ("Invalid keccak settings: " <> err)
+  --   Right h -> h

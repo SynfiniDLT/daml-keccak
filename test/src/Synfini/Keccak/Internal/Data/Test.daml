@@ -1,0 +1,43 @@
+module Synfini.Keccak.Internal.Data.Test where
+
+import DA.Assert
+import qualified DA.Map as Map
+import Daml.Script
+import Synfini.Keccak.Internal.Data
+
+test_bytesToLane : Script ()
+test_bytesToLane = do
+  let bits = [True, False, True, False, True, True, True, True, True, True, True, True, True, True, True, True]
+  unLane (bytesToLane [0xFF, 0xAF]) === replicate (64 - length bits) False <> bits
+  laneToBytes 64 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0, 0, 0, 0, 0]
+  laneToBytes 32 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0]
+
+test_fromHex : Script ()
+test_fromHex = do
+  let bits = [True, True, True, True, True, True, True, True, True, False, True, False, True, True, True, True]
+  unLane (fromHex "00FFAF") === replicate (64 - length bits) False <> bits
+
+test_and : Script ()
+test_and = do
+  fromHex "0F1" & fromHex "1E3" === fromHex "0E1"
+
+test_xor : Script ()
+test_xor = do
+  (fromHex "00FFAF") `xor` (fromHex "11ABAB") === (fromHex "115404")
+
+test_rol : Script ()
+test_rol = do
+  let z = replicate (64 - 8) False
+  rol (Lane (z <> [True, True, False,True, False,False,True, False])) 5 8 === Lane (z <> [False,True, False,True, True, False,True, False])
+
+test_listToMatrix : Script ()
+test_listToMatrix = do
+  let l = [((1, 1), 4), ((0, 0), 1), ((0, 1), 2), ((1, 0), 3), ((0, 0), 99)]
+  listToMatrix l === Map.fromList [
+      (0, Map.fromList [(0, 99), (1, 2)]),
+      (1, Map.fromList [(0, 3), (1, 4)])
+    ]
+
+test_indexMatrix : Script ()
+test_indexMatrix = do
+  Map.fromList [(0, Map.fromList [(0, 99)])] ## (0, 0) === 99

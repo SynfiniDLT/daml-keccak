@@ -1,16 +1,56 @@
-module Synfini.Keccak.Types where
+module Synfini.Keccak.Internal.Data (
+  Vector,
+  Matrix,
+  vectorSize,
+  listToVector,
+  concatVectors,
+  dropVector,
+  takeVector,
+  vectorToList,
+  listToMatrix,
+  matrixToList,
+  updateMatrix,
+  (#),
+  (##),
+  xor,
+  rol,
+  inv,
+  (&),
+  Lane, --(..),
+  Byte,
+  zeroLane,
+  fromHex,
+  bytesToLane,
+  laneToBytes,
+  textToBytes,
+  bytesToText
+) where
 
 import DA.Map (Map)
 import qualified DA.Optional as O
 import qualified DA.Map as Map
 import qualified DA.Text as TX
 
+zipChecked : [a] -> [b] -> [(a, b)]
+zipChecked x y =
+  if length x /= length y then
+    error "zipChecked: list lengths are not equal"
+  else
+    zip x y
+
+zipWithChecked : (a -> b -> c) -> [a] -> [b] -> [c]
+zipWithChecked f x y =
+  if length x /= length y then
+    error "zipWithChecked: list lengths are not equal"
+  else
+    zipWith f x y
+
 type Vector a = Map Int a
 
 type Matrix a = Vector (Vector a)
 
-size : Vector a -> Int
-size = Map.size
+vectorSize : Vector a -> Int
+vectorSize = Map.size
 
 listToVector : [a] -> Vector a
 listToVector l = Map.fromList (zip [0..length l - 1] l)
@@ -56,14 +96,17 @@ m ## (x, y) = (m # x) # y
 infixl 3 ##
 
 -- Binary values where the most significant bit is the first element in the list
-type Lane = [Bool]
+newtype Lane = Lane { unLane : [Bool] } deriving (Show, Eq)
+
+laneSize : Int
+laneSize = 64
 
 type Byte = Int
 
 zeroLane : Lane
-zeroLane = []
+zeroLane = Lane (replicate laneSize False)
 
-pad : Int -> Lane -> Lane
+pad : Int -> [Bool] -> [Bool]
 pad n l =
   let lenDiff = length l - n in
   if lenDiff >= 0 then
@@ -73,68 +116,92 @@ pad n l =
 
 -- Returns all permutations of bits of length n in ascending order:
 -- 0...00, 0...01, 0...10, 00...11, ..., 1...1
-bitPermutations : Int -> [Lane]
+bitPermutations : Int -> [[Bool]]
 bitPermutations n | n <= 0 = []
+bitPermutations 1 = [[False], [True]]
 bitPermutations n =
   let p = bitPermutations (n - 1) in
   ((False ::) <$> p) <> ((True ::) <$> p)
 
-nibblePermutations : [Lane]
+nibblePermutations : [[Bool]]
 nibblePermutations = bitPermutations 4
 
-bytePermutations : [Lane]
+bytePermutations : [[Bool]]
 bytePermutations = bitPermutations 8
 
 hexUniChars : [Int]
 hexUniChars = [48..57] <> -- 0 to 9
   [65..70] -- A to F
-charBoolMap : Map Int Lane
-charBoolMap = Map.fromList (zip hexUniChars nibblePermutations)
+charBoolMap : Map Int [Bool]
+charBoolMap = Map.fromList (zipChecked hexUniChars nibblePermutations)
 
 byteValues : [Byte]
-byteValues = [0..2^7]
-byteBoolMap : Map Byte Lane
-byteBoolMap = Map.fromList (zip byteValues bytePermutations)
+byteValues = [0..(2^8 - 1)]
+byteBoolMap : Map Byte [Bool]
+byteBoolMap =
+  Map.fromList (zipChecked byteValues bytePermutations)
 
 fromHex : Text -> Lane
 fromHex =
+  Lane .
+  pad laneSize .
   concatMap (\char -> O.fromSomeNote ("Not a valid hex character: " <> show char) (Map.lookup char charBoolMap)) .
   TX.toCodePoints
 
 xor : Lane -> Lane -> Lane
-l `xor` m =
-  let maxLen = max (length l) (length m) in
-  zipWith xorBits (pad maxLen l) (pad maxLen m)
+(Lane l) `xor` (Lane m) = Lane (zipWithChecked xorBits l m)
 
   where
     xorBits True False = True
     xorBits False True = True
     xorBits _ _ = False
 
+one : Lane
+one = Lane $ (replicate (laneSize - 1) False) <> [True]
+
+masks : Vector Lane
+masks = listToVector $ fmap Lane do
+  i <- [0..laneSize]
+  pure (pad laneSize (replicate i True))
+
 rol : Lane -> Int -> Int -> Lane
-rol l left bits =
-  let padded = pad bits l in
-  drop left l <> take left l
+rol value left bits =
+  let top = value `shiftr` (bits - left) in
+  let bot = (value & (masks # (bits - left))) `shiftl` left in
+  bot |. top
 
 inv : Lane -> Lane
-inv = fmap not
+inv (Lane l) = Lane (not <$> l)
 
 (&) : Lane -> Lane -> Lane
-a & b = zipWith (&&) a b
+Lane a & Lane b = Lane (zipWithChecked (&&) a b)
+
+(|.) : Lane -> Lane -> Lane
+Lane a |. Lane b = Lane (zipWithChecked (||) a b)
+
+shiftr : Lane -> Int -> Lane
+Lane a `shiftr` n = Lane (replicate n False <> take (laneSize - n) a)
+
+shiftl : Lane -> Int -> Lane
+Lane a `shiftl` n = Lane (drop n a <> replicate n False)
 
 bytesToLane : [Byte] -> Lane
-bytesToLane = concatMap (\byte -> O.fromSomeNote ("Not a valid byte: " <> show byte) (Map.lookup byte byteBoolMap))
+bytesToLane bs =
+  Lane .
+  pad laneSize .
+  concatMap (\byte -> O.fromSomeNote ("Not a valid byte: " <> show byte) (Map.lookup byte byteBoolMap)) .
+  reverse $ bs
 
 chunksOf : Int -> [a] -> [[a]]
 chunksOf n [] = []
 chunksOf n l = take n l :: chunksOf n (drop n l)
 
-laneToBytes : Lane -> Int -> [Byte]
-laneToBytes l n =
+laneToBytes : Int -> Lane -> [Byte]
+laneToBytes n (Lane l) = reverse $
   bitsToByte <$> chunksOf 8 (pad n l)
 
   where
-    bitsToByte bits = sum $ zipWith (\bit idx -> if bit then 2^idx else 0) bits [7, 6..0]
+    bitsToByte bits = sum $ zipWithChecked (\bit idx -> if bit then 2^idx else 0) bits [7, 6..0]
 
 textToBytes : Text -> Vector Byte
 textToBytes = listToVector . TX.toCodePoints

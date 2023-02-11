@@ -1,0 +1,21 @@
+module Synfini.Keccak.Internal.Test where
+
+import Daml.Script
+import qualified DA.Action.State as S
+import DA.Assert
+import Synfini.Keccak.Internal
+import Synfini.Keccak.Internal.Data
+
+import DA.Math (logBase)
+
+testKeccak_f : Script ()
+testKeccak_f = do
+  --floor (logBase 2.0 (intToDecimal 65)) === 6
+  let afterOneRound = S.execState (keccak_f 64) zeroState
+  let rowsAfterOneRound = do
+        y <- [0..vectorSize (afterOneRound # 0) - 1]
+        x <- [0..vectorSize afterOneRound - 1]
+        laneToBytes 64 (afterOneRound ## (x, y))
+  let expectedResult = [231, 221, 225, 64, 121, 143, 37, 241, 138, 71, 192, 51, 249, 204, 213, 132, 238, 169, 90, 166, 30, 38, 152, 213, 77, 73, 128, 111, 48, 71, 21, 189, 87, 208, 83, 98, 5, 78, 40, 139, 212, 111, 142, 127, 45, 164, 151, 255, 196, 71, 70, 164, 160, 229, 254, 144, 118, 46, 25, 214, 12, 218, 91, 140, 156, 5, 25, 27, 247, 166, 48, 173, 100, 252, 143, 208, 183, 90, 147, 48, 53, 214, 23, 35, 63, 169, 90, 235, 3, 33, 113, 13, 38, 230, 166, 169, 95, 85, 207, 219, 22, 124, 165, 129, 38, 200, 71, 3, 205, 49, 184, 67, 159, 86, 165, 17, 26, 47, 242, 1, 97, 174, 217, 33, 90, 99, 229, 5, 242, 112, 201, 140, 242, 254, 190, 100, 17, 102, 196, 123, 149, 112, 54, 97, 203, 14, 208, 79, 85, 90, 124, 184, 200, 50, 207, 28, 138, 232, 62, 140, 20, 38, 58, 174, 34, 121, 12, 148, 228, 9, 197, 162, 36, 249, 65, 24, 194, 101, 4, 231, 38, 53, 245, 22, 59, 161, 48, 127, 233, 68, 246, 117, 73, 162, 236, 92, 123, 255, 241, 234]
+  length rowsAfterOneRound === length expectedResult
+  rowsAfterOneRound === expectedResult
