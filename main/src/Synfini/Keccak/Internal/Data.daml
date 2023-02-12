@@ -19,11 +19,11 @@ module Synfini.Keccak.Internal.Data (
   Lane, --(..),
   Byte,
   zeroLane,
-  fromHex,
+  hexToLane,
   bytesToLane,
   laneToBytes,
   textToBytes,
-  bytesToText
+  byteToHex
 ) where
 
 import DA.Map (Map)
@@ -141,8 +141,8 @@ byteBoolMap : Map Byte [Bool]
 byteBoolMap =
   Map.fromList (zipChecked byteValues bytePermutations)
 
-fromHex : Text -> Lane
-fromHex =
+hexToLane : Text -> Lane
+hexToLane =
   Lane .
   pad laneSize .
   concatMap (\char -> O.fromSomeNote ("Not a valid hex character: " <> show char) (Map.lookup char charBoolMap)) .
@@ -206,5 +206,14 @@ laneToBytes n (Lane l) = reverse $
 textToBytes : Text -> Vector Byte
 textToBytes = listToVector . TX.toCodePoints
 
-bytesToText : Vector Byte -> Text
-bytesToText = TX.fromCodePoints . vectorToList
+hexes : [Text]
+hexes = do
+  hexChar <- hexUniChars
+  hexChar2 <- hexUniChars
+  pure $ TX.fromCodePoints [hexChar, hexChar2]
+
+byteHexMap : Map Byte Text
+byteHexMap = Map.fromList (zipChecked byteValues hexes)
+
+byteToHex : Byte -> Text
+byteToHex b = O.fromSomeNote ("Internal error: unknown byte value: " <> show b) (Map.lookup b byteHexMap)

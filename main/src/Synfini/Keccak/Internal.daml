@@ -12,6 +12,7 @@ import DA.Foldable (sequence_, forA_, toList, Foldable, mapA_)
 import qualified DA.Action.State as S
 import DA.Math (logBase)
 import DA.Action (replicateA)
+import qualified DA.Text as TX
 
 bitsToBytes : Int -> Int
 bitsToBytes x = (x + 7) / 8
@@ -129,7 +130,9 @@ doKeccak ks padfn permfn input = do
   let finalBufferOffset = vectorSize buffer - ((vectorSize buffer) `mod` ks.bitrateBytes)
   debug $ "final buffer offset: " <> show finalBufferOffset
   hashBytes <- hashDigest finalBufferOffset buffer
-  pure (bytesToText hashBytes)
+  debug $ "hash bytes: " <> show (vectorToList hashBytes)
+  debug $ "len has bytes: " <> show (vectorSize hashBytes)
+  pure . TX.asciiToLower . TX.implode $ byteToHex <$> vectorToList hashBytes
 
   where
     absorb : Int -> Vector Byte -> a ()
@@ -193,7 +196,7 @@ doKeccak ks padfn permfn input = do
       pure rc
 
 roundConstants : [Lane]
-roundConstants = fromHex <$> [
+roundConstants = hexToLane <$> [
     "0000000000000001", "0000000000008082", "800000000000808A", "8000000080008000",
     "000000000000808B", "0000000080000001", "8000000080008081", "8000000000008009",
     "000000000000008A", "0000000000000088", "0000000080008009", "000000008000000A",

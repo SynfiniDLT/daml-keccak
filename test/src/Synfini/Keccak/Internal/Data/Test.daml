@@ -12,18 +12,18 @@ test_bytesToLane = do
   laneToBytes 64 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0, 0, 0, 0, 0]
   laneToBytes 32 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0]
 
-test_fromHex : Script ()
-test_fromHex = do
+test_hexToLane : Script ()
+test_hexToLane = do
   let bits = [True, True, True, True, True, True, True, True, True, False, True, False, True, True, True, True]
-  unLane (fromHex "00FFAF") === replicate (64 - length bits) False <> bits
+  unLane (hexToLane "00FFAF") === replicate (64 - length bits) False <> bits
 
 test_and : Script ()
 test_and = do
-  fromHex "0F1" & fromHex "1E3" === fromHex "0E1"
+  hexToLane "0F1" & hexToLane "1E3" === hexToLane "0E1"
 
 test_xor : Script ()
 test_xor = do
-  (fromHex "00FFAF") `xor` (fromHex "11ABAB") === (fromHex "115404")
+  (hexToLane "00FFAF") `xor` (hexToLane "11ABAB") === (hexToLane "115404")
 
 test_rol : Script ()
 test_rol = do
