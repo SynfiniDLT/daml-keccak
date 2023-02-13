@@ -17,10 +17,6 @@ import qualified DA.Text as TX
 bitsToBytes : Int -> Int
 bitsToBytes x = (x + 7) / 8
 
--- data StateSettings = StateSettings
---   with
-
-
 data KeccakSettings = KeccakSettings
   with
     bitrate : Int
@@ -28,8 +24,6 @@ data KeccakSettings = KeccakSettings
     bitrateBytes : Int
     laneW : Int
     outputBits : Int
-    -- s : Matrix Lane
-    -- buffer : Vector Int
 
 stateW : Int
 stateW = 5
@@ -51,19 +45,6 @@ rangeWH = do
 
 zeroState : Matrix Lane
 zeroState = listToVector (replicate stateH (listToVector (replicate stateW zeroLane)))
-
--- mkKeccackSettings : CanAssert a => Int -> Int -> Int -> a KeccakSettings
--- mkKeccackSettings bitrate b outputBits = do
---   assertMsg "Bit rate must be a multiple of 8" (bitrate `mod` 8 == 0)
---   assertMsg "b must be a multiple of 25" (b `mod` 25 == 0)
---   pure KeccakSettings with
---     bitrate
---     b
---     bitrateBytes = bitsToBytes bitrate
---     laneW = b / 25
---     outputBits
-    -- s = zero
-    -- buffer = Map.empty
 
 -- Generate keccak settings (will fail on invalid settings)
 keccakSettings : Int  -> Int -> Int -> KeccakSettings
@@ -117,14 +98,6 @@ multiratePadding usedBytes alignBytes =
     else
       [0x01] <> replicate (padlen - 2) 0x00 <> [0x80]
 
-displayState : KeccakAction a => a ()
-displayState = do
-  s <- S.get
-  let hexes = do
-        pos <- rangeWH
-        pure $ TX.intercalate "" (byteToHex <$> laneToBytes 64 (s ## pos))
-  debug ("hexes = " <> show hexes)
-
 doKeccak : forall a. KeccakAction a =>
            KeccakSettings ->
            (Int -> Int -> Vector Byte) ->
@@ -134,18 +107,12 @@ doKeccak : forall a. KeccakAction a =>
 doKeccak ks padfn permfn input = do
   let buffer = textToBytes input
   spongeAbsorb buffer
-  debug $ "size buffer: " <> show (vectorSize buffer)
   let finalBufferOffset = vectorSize buffer - ((vectorSize buffer) `mod` ks.bitrateBytes)
-  debug $ "final buffer offset: " <> show finalBufferOffset
-  displayState
   hashBytes <- hashDigest finalBufferOffset buffer
-  debug $ "hash bytes: " <> show (vectorToList hashBytes)
-  debug $ "len has bytes: " <> show (vectorSize hashBytes)
   pure . TX.asciiToLower . TX.implode $ byteToHex <$> vectorToList hashBytes
 
   where
     absorb : Int -> Vector Byte -> a ()
-    --absorb offset bb | size bb - offset < ks.bitrateBytes
     absorb offset bb = do
       let findInBb idx = if idx >= ks.bitrateBytes then 0 else bb # (idx + offset)
 
@@ -153,14 +120,12 @@ doKeccak ks padfn permfn input = do
         y <- rangeH
         x <- rangeW
         let i = (y * stateH + x) * 8
-        debug "got here"
         pure do
           (x, y) <--^ bytesToLane (findInBb <$> [i..i+7])
 
     hashDigest : Int -> Vector Byte -> a (Vector Byte)
     hashDigest offset buffer = do
       spongeAbsorbFinal offset buffer
-      debug "absorbed final"
       spongeSqueeze (bitsToBytes ks.outputBits)
 
     getBytes : Int -> a (Vector Byte)
@@ -176,18 +141,11 @@ doKeccak ks padfn permfn input = do
     spongeAbsorb : Vector Byte -> a ()
     spongeAbsorb buffer = do
       forA_ [0,ks.bitrateBytes..(vectorSize buffer - ks.bitrateBytes)] $ \offset -> do
-        --absorb offset buffer
-        debug "sponge aborb iter"
         spongeAbsorbBlock offset buffer
-        displayState
-        --permfn ks.laneW
-        debug "spong after permfn"
-        displayState
 
     spongeAbsorbBlock : Int -> Vector Byte -> a ()
     spongeAbsorbBlock offset bb = do
       absorb offset bb
-      debug "did absorb"
       permfn ks.laneW
 
     spongeAbsorbFinal : Int -> Vector Byte -> a ()
@@ -247,9 +205,6 @@ num `mod` denom =
   else
     denom + rem
 
-laneToText : Lane -> Text
-laneToText l = TX.implode $ byteToHex <$> laneToBytes 64 l
-
 keccak_f : forall a. KeccakAction a => Int -> a ()
 keccak_f laneW = do
   -- In daml, decimal values are not represened as binary numbers, therefore taking log in base 2 is not always 100%
@@ -271,7 +226,6 @@ keccak_f laneW = do
               (rol (c # ((x + 1) `mod` stateW)) 1 laneW)
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <--^ (d # x)
-      displayState
       bElems <- forA rangeWH $ \(x, y) -> do
         lane <- getLane (x, y)
         pure (
@@ -283,20 +237,7 @@ keccak_f laneW = do
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <-- (b ## (x, y)) `xor`
           ((inv (b ## ((x + 1) `mod` stateW, y))) & (b ## ((x + 2) `mod` stateW, y)))
-      displayState
       (0, 0) <--^ rc
 
 preset : KeccakSettings -> Text -> Text
-preset ks input =
-  S.evalState (doKeccak ks multiratePadding keccak_f input) zeroState
-
-  -- let genKeccak = do
-  --       let b = bitrateBits + capacityBits
-  --       assertMsg "Must have an accepted number of bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
-  --       assertMsg "Output bits must be a whole number of bytes" (outputBits `mod` 8 == 0)
-  --       settings <- mkKeccackSettings bitrateBits b outputBits
-  --       pure $ \input -> S.evalState (doKeccak settings multiratePadding keccak_f input) zeroState
-  -- in
-  -- case genKeccak of
-  --   Left err -> error ("Invalid keccak settings: " <> err)
-  --   Right h -> h
+preset ks input = S.evalState (doKeccak ks multiratePadding keccak_f input) zeroState

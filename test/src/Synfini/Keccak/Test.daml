@@ -4,10 +4,13 @@ import DA.Assert
 import qualified DA.Text as TX
 import Daml.Script
 import Synfini.Keccak
-import Synfini.Keccak.Internal.Data
 
 repeatedText : Int -> Text -> Text
 repeatedText n text = TX.intercalate "" (replicate n text)
+
+test_keccak256_empty : Script ()
+test_keccak256_empty = do
+  keccak256 "" === "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
 
 test_keccak256_short : Script ()
 test_keccak256_short = do

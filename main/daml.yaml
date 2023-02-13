@@ -8,5 +8,3 @@ version: 0.0.1
 dependencies:
   - daml-prim
   - daml-stdlib
-exposed-modules:
-  - Synfini.Keccak
