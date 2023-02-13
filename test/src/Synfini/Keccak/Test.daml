@@ -1,10 +1,30 @@
 module Synfini.Keccak.Test where
 
 import DA.Assert
+import qualified DA.Text as TX
 import Daml.Script
 import Synfini.Keccak
 import Synfini.Keccak.Internal.Data
 
-test1 : Script ()
-test1 = do
+repeatedText : Int -> Text -> Text
+repeatedText n text = TX.intercalate "" (replicate n text)
+
+test_keccak256_short : Script ()
+test_keccak256_short = do
   keccak256 "abc" === "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
+
+test_keccak256_long_under_bitrate : Script ()
+test_keccak256_long_under_bitrate = do
+  keccak256 (repeatedText 135 "A") === "5d661f2d3aaf313834b69b2948a73a0ed39cb03726e7c29374a411d8d5d4e71a"
+
+test_keccak256_long_equal_bitrate : Script ()
+test_keccak256_long_equal_bitrate = do
+  keccak256 (repeatedText 136 "A") === "cfbaa33d0639debd26f425287642acd461b3064b2bae139ea5919adba46f40f1"
+
+test_keccak256_long_over_bitrate : Script ()
+test_keccak256_long_over_bitrate = do
+  keccak256 (repeatedText 137 "A") === "a54656ce134f33ffbc09002c6535ef7ca554c046ed838e2a24a4d1ce9478bc5c"
+
+test_keccak256_long_over_bitrate_2x : Script ()
+test_keccak256_long_over_bitrate_2x = do
+  keccak256 (repeatedText (136 * 2 + 1) "A") === "5f2e201e778c10f36fe6b1aeeccfac3de82d4a945bd7fc8342449952e3736c21"
