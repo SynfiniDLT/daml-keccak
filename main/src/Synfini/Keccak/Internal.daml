@@ -1,3 +1,6 @@
+-- Copyright (c) 2023 ASX Operations Pty Ltd. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
 module Synfini.Keccak.Internal (
   keccak_f,
   KeccakSettings,
@@ -106,7 +109,6 @@ doKeccak : forall a. KeccakAction a =>
            a Text
 doKeccak ks padfn permfn input = do
   let buffer = textToBytes input
-  debug $ "buffer: " <> (show $ byteToHex <$> vectorToList buffer)
   spongeAbsorb buffer
   let finalBufferOffset = vectorSize buffer - ((vectorSize buffer) `mod` ks.bitrateBytes)
   hashBytes <- hashDigest finalBufferOffset buffer
@@ -206,29 +208,17 @@ num `mod` denom =
   else
     denom + rem
 
-displaySponge : Action a => Text -> Matrix Lane -> a ()
-displaySponge note matrix = do
-  let hexes : [Text] = do
-        (_, lane) <- matrixToList matrix
-        byteToHex <$> laneToBytes 64 lane
-  debug $ note <> show hexes
-
-displayCurrentState : KeccakAction a => Text -> a ()
-displayCurrentState note = do
-  s <- S.get
-  displaySponge note s
-
 keccak_f : forall a. KeccakAction a => Int -> a ()
 keccak_f laneW = do
   -- In daml, decimal values are not represened as binary numbers, therefore taking log in base 2 is not always 100%
   -- accurate - e.g. logBase 2.0 64.0 == 5.9999999997. As a work around we add a small value to the log result to
   -- account for this issue.
   let l = floor (logBase 2.0 (intToDecimal laneW) + 10.0^(-9))
-  mapA_ round (take (12 + 2 * l) roundConstants)
+  mapA_ doRound (take (12 + 2 * l) roundConstants)
 
   where
-    round : Lane -> a ()
-    round rc = do
+    doRound : Lane -> a ()
+    doRound rc = do
       c : Vector Lane <- fmap listToVector . forA rangeH $ \x -> do
         r <- getRow x
         pure $ reduce xor r
@@ -239,21 +229,17 @@ keccak_f laneW = do
               (rol (c # ((x + 1) `mod` stateW)) 1 laneW)
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <--^ (d # x)
-      displayCurrentState "A !! "
       bElems <- forA rangeWH $ \(x, y) -> do
         lane <- getLane (x, y)
         pure (
             (y `mod` stateW, (2 * x + 3 * y) `mod` stateH),
             rol lane (rotationConstants ## (y, x)) laneW
           )
-      debug "Here 1"
       -- Matrix elements are zero by default, or use those in bElems if they are provided
       let b : Matrix Lane = listToMatrix (matrixToList zeroState <> bElems)
-      debug "Here 2"
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <-- (b ## (x, y)) `xor`
           ((inv (b ## ((x + 1) `mod` stateW, y))) & (b ## ((x + 2) `mod` stateW, y)))
-      debug "Here 3"
       (0, 0) <--^ rc
 
 preset : KeccakSettings -> Text -> Text

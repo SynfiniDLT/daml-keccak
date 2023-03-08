@@ -1,6 +1,10 @@
 # daml-keccak
 
-Daml library containing an implementation of the Keccak hash function.
+    Copyright (c) 2023, ASX Operations Pty Ltd. All rights reserved.
+    SPDX-License-Identifier: Apache-2.0
+
+Daml library containing an implementation of the Keccak hash function. Although SHA-3 is also part of the Keccak family,
+this version is not compatible with SHA-3 due to changes made in the SHA-3 standard.
 
 ## Build
 
@@ -43,5 +47,5 @@ daml test
 
 The implementation is not yet optimized for performance. The Daml standard library does not currently support bit-level
 operations on integers (such as bit shifting, bit-wise and/or etc.). These are necessary for the keccak hash function.
-This library implements these operations using arithmetic which presents a bottleneck. Having access to native bit-level
-operations may provide a significant performance improvement.
+This library implements these operations using basic arithmetic which presents a bottleneck. Having access to native
+bit-level operations may provide a significant performance improvement.

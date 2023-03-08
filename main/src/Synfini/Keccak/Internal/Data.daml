@@ -1,4 +1,5 @@
-{-# LANGUAGE BinaryLiterals #-}
+-- Copyright (c) 2023 ASX Operations Pty Ltd. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
 
 module Synfini.Keccak.Internal.Data (
   Vector,
@@ -18,7 +19,7 @@ module Synfini.Keccak.Internal.Data (
   rol,
   inv,
   (&),
-  Lane, --(..),
+  Lane,
   Byte,
   zeroLane,
   bytesToLane,
@@ -97,51 +98,19 @@ infixl 3 #
 m ## (x, y) = (m # x) # y
 infixl 3 ##
 
--- Binary values where the most significant bit is the first element in the list
 type Lane = Int
-
-laneSize : Int
-laneSize = 64
 
 type Byte = Int
 
 zeroLane : Lane
 zeroLane = 0
 
-pad : Int -> [Bool] -> [Bool]
-pad n l =
-  let lenDiff = length l - n in
-  if lenDiff >= 0 then
-    drop lenDiff l
-  else
-    replicate (-lenDiff) False <> l
-
--- Returns all permutations of bits of length n in ascending order:
--- 0...00, 0...01, 0...10, 00...11, ..., 1...1
-bitPermutations : Int -> [[Bool]]
-bitPermutations n | n <= 0 = []
-bitPermutations 1 = [[False], [True]]
-bitPermutations n =
-  let p = bitPermutations (n - 1) in
-  ((False ::) <$> p) <> ((True ::) <$> p)
-
-nibblePermutations : [[Bool]]
-nibblePermutations = bitPermutations 4
-
-bytePermutations : [[Bool]]
-bytePermutations = bitPermutations 8
-
 hexUniChars : [Int]
 hexUniChars = [48..57] <> -- 0 to 9
   [65..70] -- A to F
-charBoolMap : Map Int [Bool]
-charBoolMap = Map.fromList (zipChecked hexUniChars nibblePermutations)
 
 byteValues : [Byte]
 byteValues = [0..(2^8 - 1)]
-byteBoolMap : Map Byte [Bool]
-byteBoolMap =
-  Map.fromList (zipChecked byteValues bytePermutations)
 
 xor : Lane -> Lane -> Lane
 l `xor` m = bitsToInt $ zipWithChecked xorBits (intToBits l) (intToBits m)
@@ -150,12 +119,6 @@ l `xor` m = bitsToInt $ zipWithChecked xorBits (intToBits l) (intToBits m)
     xorBits True False = True
     xorBits False True = True
     xorBits _ _ = False
-
-one : Lane
-one = 1
-
--- masks : Vector Lane
--- masks = listToVector $ ((\i -> (1 `shiftl` i) - 1) <$> [0..62]) <> [(-1)]
 
 masks : Vector Lane
 masks = listToVector $ (\i -> (-1) `shiftr` i) <$> [64,63..0] 
@@ -210,25 +173,11 @@ a `shiftl` n
 bytesToLane : [Byte] -> Lane
 bytesToLane bytes = sum $ zipWith (\byte i -> byte `shiftl` i) bytes [0,8..64]
 
-chunksOf : Int -> [a] -> [[a]]
-chunksOf n [] = []
-chunksOf n l = take n l :: chunksOf n (drop n l)
-
 laneToBytes : Int -> Lane -> [Byte]
 laneToBytes w l = map (\i -> (l `shiftr` i) & 0xFF) [0,8..(w - 8)]
 
 textToBytes : Text -> Vector Byte
 textToBytes = listToVector . concatMap charToUtf8Bytes . TX.toCodePoints
-  -- where
-  --   codePointToBytes : Int -> [Byte]
-  --   codePointToBytes n | n < 0 || n >= 2^24 = error ("Not a supported unicode character: " <> show n)
-  --   codePointToBytes n =
-  --     let byte0 = successiveMod n [62,61..8] in
-  --     let byte1 = successiveMod (n - byte0) [62,61..16] in
-  --     let byte2 = successiveMod (n - byte0 - byte1) [62,61..24] in
-  --     dropWhile (== 0) [byte2 / (2 ^ 16), byte1 / (2 ^ 8), byte0]
-
-  --   successiveMod value iters = foldl (\acc i -> acc % (2^i)) value iters
 
 charToUtf8Bytes : Int -> [Byte]
 charToUtf8Bytes codePoint =
@@ -237,19 +186,19 @@ charToUtf8Bytes codePoint =
   else if codePoint <= 0x7F then
     [codePoint]
   else if codePoint <= 0x7FF then
-    let byte1 = 0b11000000 + (codePoint `shiftr` 6) in
-    let byte2 = 0b10000000 + (0b111111 & codePoint) in
+    let byte1 = 0xC0 + (codePoint `shiftr` 6) in
+    let byte2 = 0x80 + (0x3F & codePoint) in
     [byte1, byte2]
   else if codePoint <= 0xFFFF then
-    let byte1 = 0b11100000 + (codePoint `shiftr` 12) in
-    let byte2 = 0b10000000 + ((codePoint `shiftr` 6) & 0b111111) in
-    let byte3 = 0b10000000 + (codePoint & 0b111111) in
+    let byte1 = 0xE0 + (codePoint `shiftr` 12) in
+    let byte2 = 0x80 + ((codePoint `shiftr` 6) & 0x3F) in
+    let byte3 = 0x80 + (codePoint & 0x3F) in
     [byte1, byte2, byte3]
   else if codePoint <= 0x10FFFF then
-    let byte1 = 0b11110000 + (codePoint `shiftr` 18) in
-    let byte2 = 0b10000000 + ((codePoint `shiftr` 12) & 0b111111) in
-    let byte3 = 0b10000000 + ((codePoint `shiftr` 6) & 0b111111) in
-    let byte4 = 0b10000000 + (codePoint & 0b111111) in
+    let byte1 = 0xF0 + (codePoint `shiftr` 18) in
+    let byte2 = 0x80 + ((codePoint `shiftr` 12) & 0x3F) in
+    let byte3 = 0x80 + ((codePoint `shiftr` 6) & 0x3F) in
+    let byte4 = 0x80 + (codePoint & 0x3F) in
     [byte1, byte2, byte3, byte4]
   else
     error ("Internal error: out of range code point: " <> show codePoint)
