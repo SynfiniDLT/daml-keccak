@@ -159,16 +159,24 @@ shiftr : Lane -> Int -> Lane
 a `shiftr` n
   | n <= 0 = a
   | n >= 64 = 0
-  | a < 0 = (((a + maxBound + 1) / 2) `shiftr` (n - 1)) + 2^(63 - n)
-  | otherwise  = (a / 2) `shiftr` (n - 1)
+  | a < 0 = ((a + maxBound + 1) `shiftr` n) + 2^(63 - n)
+  | otherwise = (a / (2 ^ (n - 1))) / 2
 
 shiftl : Lane -> Int -> Lane
 a `shiftl` n
   | n <= 0 = a
   | n >= 64 = 0
-  | a >= 2^62 = (((a - 2^62) * 2) `shiftl` (n - 1)) + (if n == 1 then minBound else 0)
   | a < 0 = (a + maxBound + 1) `shiftl` n
-  | otherwise = (a * 2) `shiftl` (n - 1)
+  | otherwise =
+    let r 
+          | n > 1 = a % (2 ^ (63 - n + 1))
+          | otherwise = a
+    in
+    let rShifted = r * (2 ^ (n - 1)) in
+    if rShifted >= 2^62 then
+      (rShifted - 2^62) * 2 + minBound
+    else
+      rShifted * 2
 
 bytesToLane : [Byte] -> Lane
 bytesToLane bytes = sum $ zipWith (\byte i -> byte `shiftl` i) bytes [0,8..64]
