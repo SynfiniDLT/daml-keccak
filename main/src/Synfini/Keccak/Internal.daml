@@ -106,6 +106,7 @@ doKeccak : forall a. KeccakAction a =>
            a Text
 doKeccak ks padfn permfn input = do
   let buffer = textToBytes input
+  debug $ "buffer: " <> (show $ byteToHex <$> vectorToList buffer)
   spongeAbsorb buffer
   let finalBufferOffset = vectorSize buffer - ((vectorSize buffer) `mod` ks.bitrateBytes)
   hashBytes <- hashDigest finalBufferOffset buffer
@@ -169,13 +170,13 @@ doKeccak ks padfn permfn input = do
       pure rc
 
 roundConstants : [Lane]
-roundConstants = hexToLane <$> [
-    "0000000000000001", "0000000000008082", "800000000000808A", "8000000080008000",
-    "000000000000808B", "0000000080000001", "8000000080008081", "8000000000008009",
-    "000000000000008A", "0000000000000088", "0000000080008009", "000000008000000A",
-    "000000008000808B", "800000000000008B", "8000000000008089", "8000000000008003",
-    "8000000000008002", "8000000000000080", "000000000000800A", "800000008000000A",
-    "8000000080008081", "8000000000008080", "0000000080000001", "8000000080008008"
+roundConstants = [
+    0x0000000000000001, 0x0000000000008082, -2^63 + 0x00000000000808A, -2^63 + 0x000000080008000,
+    0x000000000000808B, 0x0000000080000001, -2^63 + 0x000000080008081, -2^63 + 0x000000000008009,
+    0x000000000000008A, 0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
+    0x000000008000808B, -2^63 + 0x00000000000008B, -2^63 + 0x000000000008089, -2^63 + 0x000000000008003,
+    -2^63 + 0x000000000008002, -2^63 + 0x000000000000080, 0x000000000000800A, -2^63 + 0x00000008000000A,
+    -2^63 + 0x000000080008081, -2^63 + 0x000000000008080, 0x0000000080000001, -2^63 + 0x000000080008008
   ]
 
 rotationConstants : Matrix Int
@@ -205,6 +206,18 @@ num `mod` denom =
   else
     denom + rem
 
+displaySponge : Action a => Text -> Matrix Lane -> a ()
+displaySponge note matrix = do
+  let hexes : [Text] = do
+        (_, lane) <- matrixToList matrix
+        byteToHex <$> laneToBytes 64 lane
+  debug $ note <> show hexes
+
+displayCurrentState : KeccakAction a => Text -> a ()
+displayCurrentState note = do
+  s <- S.get
+  displaySponge note s
+
 keccak_f : forall a. KeccakAction a => Int -> a ()
 keccak_f laneW = do
   -- In daml, decimal values are not represened as binary numbers, therefore taking log in base 2 is not always 100%
@@ -226,6 +239,7 @@ keccak_f laneW = do
               (rol (c # ((x + 1) `mod` stateW)) 1 laneW)
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <--^ (d # x)
+      displayCurrentState "A !! "
       bElems <- forA rangeWH $ \(x, y) -> do
         lane <- getLane (x, y)
         pure (

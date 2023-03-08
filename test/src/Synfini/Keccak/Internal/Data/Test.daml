@@ -1,34 +1,47 @@
+{-# LANGUAGE BinaryLiterals #-}
+
 module Synfini.Keccak.Internal.Data.Test where
 
 import DA.Assert
 import qualified DA.Map as Map
+import qualified DA.Text as TX
 import Daml.Script
 import Synfini.Keccak.Internal.Data
 
 test_bytesToLane : Script ()
 test_bytesToLane = do
-  let bits = [True, False, True, False, True, True, True, True, True, True, True, True, True, True, True, True]
-  unLane (bytesToLane [0xFF, 0xAF]) === replicate (64 - length bits) False <> bits
+  bytesToLane [0xFF, 0xAF] === 0xAFFF
   laneToBytes 64 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0, 0, 0, 0, 0]
   laneToBytes 32 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0]
 
-test_hexToLane : Script ()
-test_hexToLane = do
-  let bits = [True, True, True, True, True, True, True, True, True, False, True, False, True, True, True, True]
-  unLane (hexToLane "00FFAF") === replicate (64 - length bits) False <> bits
-
 test_and : Script ()
 test_and = do
-  hexToLane "0F1" & hexToLane "1E3" === hexToLane "0E1"
+  0xF1 & 0x1E3 === 0xE1
 
 test_xor : Script ()
 test_xor = do
-  (hexToLane "00FFAF") `xor` (hexToLane "11ABAB") === (hexToLane "115404")
+  0x00FFAF `xor` 0x11ABAB === 0x115404
+
+test_shiftl : Script ()
+test_shiftl = do
+  0b1 `shiftl` 0 === 0b1
+  0b1 `shiftl` 1 === 0b10
+  0b1011 `shiftl` 3 === 0b1011000
+  (2^62) `shiftl` 1 === minBound
+  minBound `shiftl` 1 === 0
+  minBound `shiftl` 2 === 0
+
+test_shiftr : Script ()
+test_shiftr = do
+  0b1 `shiftr` 0 === 0b1
+  0b1 `shiftr` 1 === 0
+  0b1011 `shiftr` 3 === 0b1
+  minBound `shiftr` 1 === 2^62
+  minBound `shiftr` 2 === 2^61
 
 test_rol : Script ()
 test_rol = do
-  let z = replicate (64 - 8) False
-  rol (Lane (z <> [True, True, False,True, False,False,True, False])) 5 8 === Lane (z <> [False,True, False,True, True, False,True, False])
+  rol 0b11010010 5 8 === 0b01011010
 
 test_listToMatrix : Script ()
 test_listToMatrix = do
@@ -41,3 +54,19 @@ test_listToMatrix = do
 test_indexMatrix : Script ()
 test_indexMatrix = do
   Map.fromList [(0, Map.fromList [(0, 99)])] ## (0, 0) === 99
+
+test_textToBytes1 : Script ()
+test_textToBytes1 = do
+  vectorToList (textToBytes "A") === [65]
+
+test_textToBytes2 : Script ()
+test_textToBytes2 = do
+  vectorToList (textToBytes $ TX.fromCodePoints [0x80]) === [0xC2, 0x80]
+
+test_textToBytes3 : Script ()
+test_textToBytes3 = do
+  vectorToList (textToBytes "€") === [0xE2, 0x82, 0xAC]
+
+test_textToBytes4 : Script ()
+test_textToBytes4 = do
+  vectorToList (textToBytes "𮀔") === [0xF0, 0xAE, 0x80, 0x94]

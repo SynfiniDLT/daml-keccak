@@ -1,3 +1,5 @@
+{-# LANGUAGE BinaryLiterals #-}
+
 module Synfini.Keccak.Internal.Data (
   Vector,
   Matrix,
@@ -19,13 +21,13 @@ module Synfini.Keccak.Internal.Data (
   Lane, --(..),
   Byte,
   zeroLane,
-  hexToLane,
   bytesToLane,
   laneToBytes,
   textToBytes,
   byteToHex
 ) where
 
+import qualified DA.List as L
 import DA.Map (Map)
 import qualified DA.Optional as O
 import qualified DA.Map as Map
@@ -96,7 +98,7 @@ m ## (x, y) = (m # x) # y
 infixl 3 ##
 
 -- Binary values where the most significant bit is the first element in the list
-newtype Lane = Lane { unLane : [Bool] } deriving (Show, Eq)
+type Lane = Int
 
 laneSize : Int
 laneSize = 64
@@ -104,7 +106,7 @@ laneSize = 64
 type Byte = Int
 
 zeroLane : Lane
-zeroLane = Lane (replicate laneSize False)
+zeroLane = 0
 
 pad : Int -> [Bool] -> [Bool]
 pad n l =
@@ -141,15 +143,8 @@ byteBoolMap : Map Byte [Bool]
 byteBoolMap =
   Map.fromList (zipChecked byteValues bytePermutations)
 
-hexToLane : Text -> Lane
-hexToLane =
-  Lane .
-  pad laneSize .
-  concatMap (\char -> O.fromSomeNote ("Not a valid hex character: " <> show char) (Map.lookup char charBoolMap)) .
-  TX.toCodePoints
-
 xor : Lane -> Lane -> Lane
-(Lane l) `xor` (Lane m) = Lane (zipWithChecked xorBits l m)
+l `xor` m = bitsToInt $ zipWithChecked xorBits (intToBits l) (intToBits m)
 
   where
     xorBits True False = True
@@ -157,12 +152,10 @@ xor : Lane -> Lane -> Lane
     xorBits _ _ = False
 
 one : Lane
-one = Lane $ (replicate (laneSize - 1) False) <> [True]
+one = 1
 
 masks : Vector Lane
-masks = listToVector $ fmap Lane do
-  i <- [0..laneSize]
-  pure (pad laneSize (replicate i True))
+masks = listToVector $ ((\i -> (1 `shiftl` i) - 1) <$> [0..62]) <> [(-1)]
 
 rol : Lane -> Int -> Int -> Lane
 rol value left bits =
@@ -171,40 +164,90 @@ rol value left bits =
   bot |. top
 
 inv : Lane -> Lane
-inv (Lane l) = Lane (not <$> l)
+inv l = -l - 1
+
+go : Int -> Int -> [Bool] -> [Bool]
+go n a acc
+  | n < 0 = acc
+  | a >= 2^n = go (n - 1) (a - 2^n) (True :: acc)
+  | otherwise = go (n - 1) a (False :: acc)
+
+intToBits : Lane -> [Bool]
+intToBits x =
+  let firstBit = x < 0 in
+  let x' = if firstBit then x + maxBound + 1 else x in
+  firstBit :: reverse (go 62 x' [])
+
+bitsToInt : [Bool] -> Lane
+bitsToInt bits =
+  let firstInt = if L.head bits then minBound else 0 in
+  fst $ foldl (\(acc, i) bit -> ((if bit then 2^i else 0) + acc, i - 1)) (firstInt, 62) (L.tail bits)
 
 (&) : Lane -> Lane -> Lane
-Lane a & Lane b = Lane (zipWithChecked (&&) a b)
+a & b  = bitsToInt $ zipWithChecked (&&) (intToBits a) (intToBits b)
 
 (|.) : Lane -> Lane -> Lane
-Lane a |. Lane b = Lane (zipWithChecked (||) a b)
+a |. b = bitsToInt $ zipWithChecked (||) (intToBits a) (intToBits b)
 
 shiftr : Lane -> Int -> Lane
-Lane a `shiftr` n = Lane (replicate n False <> take (laneSize - n) a)
+a `shiftr` n
+  | n <= 0 = a
+  | a < 0 = (((a + maxBound + 1) / 2) `shiftr` (n - 1)) + 2^(63 - n)
+  | otherwise  = (a / 2) `shiftr` (n - 1)
 
 shiftl : Lane -> Int -> Lane
-Lane a `shiftl` n = Lane (drop n a <> replicate n False)
+a `shiftl` n
+  | n <= 0 = a
+  | a >= 2^62 = (((a - 2^62) * 2) `shiftl` (n - 1)) + (if n == 1 then minBound else 0)
+  | a < 0 = (a + maxBound + 1) `shiftl` n
+  | otherwise = (a * 2) `shiftl` (n - 1)
 
 bytesToLane : [Byte] -> Lane
-bytesToLane bs =
-  Lane .
-  pad laneSize .
-  concatMap (\byte -> O.fromSomeNote ("Not a valid byte: " <> show byte) (Map.lookup byte byteBoolMap)) .
-  reverse $ bs
+bytesToLane bytes = sum $ zipWith (\byte i -> byte `shiftl` i) bytes [0,8..64]
 
 chunksOf : Int -> [a] -> [[a]]
 chunksOf n [] = []
 chunksOf n l = take n l :: chunksOf n (drop n l)
 
 laneToBytes : Int -> Lane -> [Byte]
-laneToBytes n (Lane l) = reverse $
-  bitsToByte <$> chunksOf 8 (pad n l)
-
-  where
-    bitsToByte bits = sum $ zipWithChecked (\bit idx -> if bit then 2^idx else 0) bits [7, 6..0]
+laneToBytes w l = map (\i -> (l `shiftr` i) & 0xFF) [0,8..(w - 8)]
 
 textToBytes : Text -> Vector Byte
-textToBytes = listToVector . TX.toCodePoints
+textToBytes = listToVector . concatMap charToUtf8Bytes . TX.toCodePoints
+  -- where
+  --   codePointToBytes : Int -> [Byte]
+  --   codePointToBytes n | n < 0 || n >= 2^24 = error ("Not a supported unicode character: " <> show n)
+  --   codePointToBytes n =
+  --     let byte0 = successiveMod n [62,61..8] in
+  --     let byte1 = successiveMod (n - byte0) [62,61..16] in
+  --     let byte2 = successiveMod (n - byte0 - byte1) [62,61..24] in
+  --     dropWhile (== 0) [byte2 / (2 ^ 16), byte1 / (2 ^ 8), byte0]
+
+  --   successiveMod value iters = foldl (\acc i -> acc % (2^i)) value iters
+
+charToUtf8Bytes : Int -> [Byte]
+charToUtf8Bytes codePoint =
+  if codePoint < 0 then
+    error ("Internal error: negative code point: " <> show codePoint)
+  else if codePoint <= 0x7F then
+    [codePoint]
+  else if codePoint <= 0x7FF then
+    let byte1 = 0b11000000 + (codePoint `shiftr` 6) in
+    let byte2 = 0b10000000 + (0b111111 & codePoint) in
+    [byte1, byte2]
+  else if codePoint <= 0xFFFF then
+    let byte1 = 0b11100000 + (codePoint `shiftr` 12) in
+    let byte2 = 0b10000000 + ((codePoint `shiftr` 6) & 0b111111) in
+    let byte3 = 0b10000000 + (codePoint & 0b111111) in
+    [byte1, byte2, byte3]
+  else if codePoint <= 0x10FFFF then
+    let byte1 = 0b11110000 + (codePoint `shiftr` 18) in
+    let byte2 = 0b10000000 + ((codePoint `shiftr` 12) & 0b111111) in
+    let byte3 = 0b10000000 + ((codePoint `shiftr` 6) & 0b111111) in
+    let byte4 = 0b10000000 + (codePoint & 0b111111) in
+    [byte1, byte2, byte3, byte4]
+  else
+    error ("Internal error: out of range code point: " <> show codePoint)
 
 hexes : [Text]
 hexes = do
