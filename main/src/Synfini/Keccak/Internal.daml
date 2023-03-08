@@ -1,3 +1,6 @@
+-- Copyright (c) 2023 ASX Operations Pty Ltd. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
 module Synfini.Keccak.Internal (
   keccak_f,
   KeccakSettings,
@@ -169,13 +172,13 @@ doKeccak ks padfn permfn input = do
       pure rc
 
 roundConstants : [Lane]
-roundConstants = hexToLane <$> [
-    "0000000000000001", "0000000000008082", "800000000000808A", "8000000080008000",
-    "000000000000808B", "0000000080000001", "8000000080008081", "8000000000008009",
-    "000000000000008A", "0000000000000088", "0000000080008009", "000000008000000A",
-    "000000008000808B", "800000000000008B", "8000000000008089", "8000000000008003",
-    "8000000000008002", "8000000000000080", "000000000000800A", "800000008000000A",
-    "8000000080008081", "8000000000008080", "0000000080000001", "8000000080008008"
+roundConstants = [
+    0x0000000000000001, 0x0000000000008082, minBound + 0x00000000000808A, minBound + 0x000000080008000,
+    0x000000000000808B, 0x0000000080000001, minBound + 0x000000080008081, minBound + 0x000000000008009,
+    0x000000000000008A, 0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
+    0x000000008000808B, minBound + 0x00000000000008B, minBound + 0x000000000008089, minBound + 0x000000000008003,
+    minBound + 0x000000000008002, minBound + 0x000000000000080, 0x000000000000800A, minBound + 0x00000008000000A,
+    minBound + 0x000000080008081, minBound + 0x000000000008080, 0x0000000080000001, minBound + 0x000000080008008
   ]
 
 rotationConstants : Matrix Int
@@ -211,11 +214,11 @@ keccak_f laneW = do
   -- accurate - e.g. logBase 2.0 64.0 == 5.9999999997. As a work around we add a small value to the log result to
   -- account for this issue.
   let l = floor (logBase 2.0 (intToDecimal laneW) + 10.0^(-9))
-  mapA_ round (take (12 + 2 * l) roundConstants)
+  mapA_ doRound (take (12 + 2 * l) roundConstants)
 
   where
-    round : Lane -> a ()
-    round rc = do
+    doRound : Lane -> a ()
+    doRound rc = do
       c : Vector Lane <- fmap listToVector . forA rangeH $ \x -> do
         r <- getRow x
         pure $ reduce xor r
