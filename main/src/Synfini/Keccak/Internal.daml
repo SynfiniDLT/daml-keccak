@@ -171,12 +171,12 @@ doKeccak ks padfn permfn input = do
 
 roundConstants : [Lane]
 roundConstants = [
-    0x0000000000000001, 0x0000000000008082, -2^63 + 0x00000000000808A, -2^63 + 0x000000080008000,
-    0x000000000000808B, 0x0000000080000001, -2^63 + 0x000000080008081, -2^63 + 0x000000000008009,
+    0x0000000000000001, 0x0000000000008082, minBound + 0x00000000000808A, minBound + 0x000000080008000,
+    0x000000000000808B, 0x0000000080000001, minBound + 0x000000080008081, minBound + 0x000000000008009,
     0x000000000000008A, 0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
-    0x000000008000808B, -2^63 + 0x00000000000008B, -2^63 + 0x000000000008089, -2^63 + 0x000000000008003,
-    -2^63 + 0x000000000008002, -2^63 + 0x000000000000080, 0x000000000000800A, -2^63 + 0x00000008000000A,
-    -2^63 + 0x000000080008081, -2^63 + 0x000000000008080, 0x0000000080000001, -2^63 + 0x000000080008008
+    0x000000008000808B, minBound + 0x00000000000008B, minBound + 0x000000000008089, minBound + 0x000000000008003,
+    minBound + 0x000000000008002, minBound + 0x000000000000080, 0x000000000000800A, minBound + 0x00000008000000A,
+    minBound + 0x000000080008081, minBound + 0x000000000008080, 0x0000000080000001, minBound + 0x000000080008008
   ]
 
 rotationConstants : Matrix Int
@@ -246,11 +246,14 @@ keccak_f laneW = do
             (y `mod` stateW, (2 * x + 3 * y) `mod` stateH),
             rol lane (rotationConstants ## (y, x)) laneW
           )
+      debug "Here 1"
       -- Matrix elements are zero by default, or use those in bElems if they are provided
       let b : Matrix Lane = listToMatrix (matrixToList zeroState <> bElems)
+      debug "Here 2"
       forA_ rangeWH $ \(x, y) -> do
         (x, y) <-- (b ## (x, y)) `xor`
           ((inv (b ## ((x + 1) `mod` stateW, y))) & (b ## ((x + 2) `mod` stateW, y)))
+      debug "Here 3"
       (0, 0) <--^ rc
 
 preset : KeccakSettings -> Text -> Text

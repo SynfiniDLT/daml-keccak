@@ -24,8 +24,10 @@ test_xor = do
 
 test_shiftl : Script ()
 test_shiftl = do
-  0b1 `shiftl` 0 === 0b1
-  0b1 `shiftl` 1 === 0b10
+  1 `shiftl` 0 === 1
+  1 `shiftl` 1 === 0b10
+  1 `shiftl` 63 === minBound
+  1 `shiftl` 64 === 0
   0b1011 `shiftl` 3 === 0b1011000
   (2^62) `shiftl` 1 === minBound
   minBound `shiftl` 1 === 0
@@ -33,9 +35,11 @@ test_shiftl = do
 
 test_shiftr : Script ()
 test_shiftr = do
-  0b1 `shiftr` 0 === 0b1
-  0b1 `shiftr` 1 === 0
-  0b1011 `shiftr` 3 === 0b1
+  1 `shiftr` 0 === 1
+  1 `shiftr` 1 === 0
+  minBound `shiftr` 63 === 1
+  minBound `shiftr` 64 === 0
+  0b1011 `shiftr` 3 === 1
   minBound `shiftr` 1 === 2^62
   minBound `shiftr` 2 === 2^61
 

@@ -154,8 +154,11 @@ l `xor` m = bitsToInt $ zipWithChecked xorBits (intToBits l) (intToBits m)
 one : Lane
 one = 1
 
+-- masks : Vector Lane
+-- masks = listToVector $ ((\i -> (1 `shiftl` i) - 1) <$> [0..62]) <> [(-1)]
+
 masks : Vector Lane
-masks = listToVector $ ((\i -> (1 `shiftl` i) - 1) <$> [0..62]) <> [(-1)]
+masks = listToVector $ (\i -> (-1) `shiftr` i) <$> [64,63..0] 
 
 rol : Lane -> Int -> Int -> Lane
 rol value left bits =
@@ -192,12 +195,14 @@ a |. b = bitsToInt $ zipWithChecked (||) (intToBits a) (intToBits b)
 shiftr : Lane -> Int -> Lane
 a `shiftr` n
   | n <= 0 = a
+  | n >= 64 = 0
   | a < 0 = (((a + maxBound + 1) / 2) `shiftr` (n - 1)) + 2^(63 - n)
   | otherwise  = (a / 2) `shiftr` (n - 1)
 
 shiftl : Lane -> Int -> Lane
 a `shiftl` n
   | n <= 0 = a
+  | n >= 64 = 0
   | a >= 2^62 = (((a - 2^62) * 2) `shiftl` (n - 1)) + (if n == 1 then minBound else 0)
   | a < 0 = (a + maxBound + 1) `shiftl` n
   | otherwise = (a * 2) `shiftl` (n - 1)
