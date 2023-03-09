@@ -54,9 +54,9 @@ keccakSettings : Int  -> Int -> Int -> KeccakSettings
 keccakSettings bitrateBits capacityBits outputBits =
   let mk = do
         let b = bitrateBits + capacityBits
-        assertMsg "Must have an accepted number of bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
-        assertMsg "Output bits must be a whole number of bytes" (outputBits `mod` 8 == 0)
-        assertMsg "Bit rate must be a multiple of 8" (bitrateBits `mod` 8 == 0)
+        assertMsg "must have an accepted number of bits" (b `elem` [25, 50, 100, 200, 500, 800, 1600])
+        assertMsg "output bits must be a whole number of bytes" (outputBits `mod` 8 == 0)
+        assertMsg "bit rate must be a multiple of 8" (bitrateBits `mod` 8 == 0)
         assertMsg "b must be a multiple of 25" (b `mod` 25 == 0)
         pure KeccakSettings with
           bitrate = bitrateBits
@@ -66,7 +66,7 @@ keccakSettings bitrateBits capacityBits outputBits =
           outputBits
   in
   case mk of
-    Left err -> error ("Invalid keccak settings: " <> err)
+    Left err -> error ("Keccak: Invalid keccak settings: " <> err)
     Right s -> s
 
 type KeccakAction a = (Action a, S.ActionState (Matrix Lane) a)
@@ -198,7 +198,7 @@ reduce f t =
   let l = toList t in
   case l of
     x :: xs -> foldl f x xs
-    [] -> error "Unexpected empty list"
+    [] -> error "Keccak: Internal error: Unexpected empty list"
 
 mod : Int -> Int -> Int
 num `mod` denom =

@@ -28,25 +28,10 @@ module Synfini.Keccak.Internal.Data (
   byteToHex
 ) where
 
-import qualified DA.List as L
 import DA.Map (Map)
 import qualified DA.Optional as O
 import qualified DA.Map as Map
 import qualified DA.Text as TX
-
-zipChecked : [a] -> [b] -> [(a, b)]
-zipChecked x y =
-  if length x /= length y then
-    error "zipChecked: list lengths are not equal"
-  else
-    zip x y
-
-zipWithChecked : (a -> b -> c) -> [a] -> [b] -> [c]
-zipWithChecked f x y =
-  if length x /= length y then
-    error "zipWithChecked: list lengths are not equal"
-  else
-    zipWith f x y
 
 type Vector a = Map Int a
 
@@ -91,7 +76,7 @@ matrixToList m = do
   pure ((x, y), value)
 
 (#) : Vector a -> Int -> a
-m # k = O.fromSomeNote ("Vector element not found at index: " <> show k) (Map.lookup k m)
+m # k = O.fromSomeNote ("Keccak: Internal error: vector element not found at index: " <> show k) (Map.lookup k m)
 infixl 3 #
 
 (##) : Matrix a -> (Int, Int) -> a
@@ -113,7 +98,7 @@ byteValues : [Byte]
 byteValues = [0..(2^8 - 1)]
 
 xor : Lane -> Lane -> Lane
-l `xor` m = bitsToInt $ zipWithChecked xorBits (intToBits l) (intToBits m)
+a `xor` b = bitwise xorBits 63 0 a b
 
   where
     xorBits True False = True
@@ -130,30 +115,42 @@ rol value left bits =
   bot |. top
 
 inv : Lane -> Lane
-inv l = -l - 1
+inv l
+  | l > minBound = -l - 1
+  | otherwise = maxBound
 
-go : Int -> Int -> [Bool] -> [Bool]
-go n a acc
-  | n < 0 = acc
-  | a >= 2^n = go (n - 1) (a - 2^n) (True :: acc)
-  | otherwise = go (n - 1) a (False :: acc)
+nextBit : Lane -> Int -> (Bool, Lane)
+nextBit x i =
+  if i == 63 then
+    if x < 0 then
+      (True, x + maxBound + 1)
+    else
+      (False, x)
+  else
+    let cutOff = 2 ^ i in
+    if x >= cutOff then
+      (True, x - cutOff)
+    else
+      (False, x)
 
-intToBits : Lane -> [Bool]
-intToBits x =
-  let firstBit = x < 0 in
-  let x' = if firstBit then x + maxBound + 1 else x in
-  firstBit :: reverse (go 62 x' [])
-
-bitsToInt : [Bool] -> Lane
-bitsToInt bits =
-  let firstInt = if L.head bits then minBound else 0 in
-  fst $ foldl (\(acc, i) bit -> ((if bit then 2^i else 0) + acc, i - 1)) (firstInt, 62) (L.tail bits)
+bitwise : (Bool -> Bool -> Bool) -> Int -> Lane -> Lane -> Lane -> Lane
+bitwise op i output x y
+  | i < 0 = output
+  | otherwise =
+    let (xBit, nextX) = nextBit x i
+        (yBit, nextY) = nextBit y i
+    in
+    if op xBit yBit then
+      let toAdd = if i == 63 then minBound else (2 ^ i) in
+      bitwise op (i - 1) (output + toAdd) nextX nextY
+    else
+      bitwise op (i - 1) output nextX nextY
 
 (&) : Lane -> Lane -> Lane
-a & b  = bitsToInt $ zipWithChecked (&&) (intToBits a) (intToBits b)
+a & b  = bitwise (&&) 63 0 a b
 
 (|.) : Lane -> Lane -> Lane
-a |. b = bitsToInt $ zipWithChecked (||) (intToBits a) (intToBits b)
+a |. b = bitwise (||) 63 0 a b
 
 shiftr : Lane -> Int -> Lane
 a `shiftr` n
@@ -188,28 +185,25 @@ textToBytes : Text -> Vector Byte
 textToBytes = listToVector . concatMap charToUtf8Bytes . TX.toCodePoints
 
 charToUtf8Bytes : Int -> [Byte]
-charToUtf8Bytes codePoint =
-  if codePoint < 0 then
-    error ("Internal error: negative code point: " <> show codePoint)
-  else if codePoint <= 0x7F then
-    [codePoint]
-  else if codePoint <= 0x7FF then
+charToUtf8Bytes codePoint
+  | codePoint < 0 = error ("Keccak: Internal error: negative code point: " <> show codePoint)
+  | codePoint <= 0x7F = [codePoint]
+  | codePoint <= 0x7FF =
     let byte1 = 0xC0 + (codePoint `shiftr` 6) in
     let byte2 = 0x80 + (0x3F & codePoint) in
     [byte1, byte2]
-  else if codePoint <= 0xFFFF then
+  | codePoint <= 0xFFFF =
     let byte1 = 0xE0 + (codePoint `shiftr` 12) in
     let byte2 = 0x80 + ((codePoint `shiftr` 6) & 0x3F) in
     let byte3 = 0x80 + (codePoint & 0x3F) in
     [byte1, byte2, byte3]
-  else if codePoint <= 0x10FFFF then
+  | codePoint <= 0x10FFFF =
     let byte1 = 0xF0 + (codePoint `shiftr` 18) in
     let byte2 = 0x80 + ((codePoint `shiftr` 12) & 0x3F) in
     let byte3 = 0x80 + ((codePoint `shiftr` 6) & 0x3F) in
     let byte4 = 0x80 + (codePoint & 0x3F) in
     [byte1, byte2, byte3, byte4]
-  else
-    error ("Internal error: out of range code point: " <> show codePoint)
+  | otherwise = error ("Keccak: Internal error: out of range code point: " <> show codePoint)
 
 hexes : [Text]
 hexes = do
@@ -218,7 +212,7 @@ hexes = do
   pure $ TX.fromCodePoints [hexChar, hexChar2]
 
 byteHexMap : Map Byte Text
-byteHexMap = Map.fromList (zipChecked byteValues hexes)
+byteHexMap = Map.fromList (zip byteValues hexes)
 
 byteToHex : Byte -> Text
-byteToHex b = O.fromSomeNote ("Internal error: unknown byte value: " <> show b) (Map.lookup b byteHexMap)
+byteToHex b = O.fromSomeNote ("Keccak: Internal error: unknown byte value: " <> show b) (Map.lookup b byteHexMap)
