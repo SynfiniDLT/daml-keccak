@@ -4,7 +4,7 @@
 sdk-version: 2.2.1
 name: keccak
 source: src
-version: 0.1.0
+version: 0.1.1
 dependencies:
   - daml-prim
   - daml-stdlib
