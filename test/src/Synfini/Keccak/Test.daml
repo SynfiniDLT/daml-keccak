@@ -35,6 +35,6 @@ test_keccak256_long_over_bitrate_2x : Script ()
 test_keccak256_long_over_bitrate_2x = do
   keccak256 (repeatedText (136 * 2 + 1) "A") === "5f2e201e778c10f36fe6b1aeeccfac3de82d4a945bd7fc8342449952e3736c21"
 
-test_unicode_symbol : Script ()
-test_unicode_symbol = do
+test_keccak256_unicode_symbol : Script ()
+test_keccak256_unicode_symbol = do
   keccak256 "€" === "e35642152f35c02fe26ab99f4361ed8835f18f79f916ade14e661e460be36839"

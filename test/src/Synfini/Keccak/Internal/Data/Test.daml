@@ -17,6 +17,12 @@ test_bytesToLane = do
   laneToBytes 64 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0, 0, 0, 0, 0]
   laneToBytes 32 (bytesToLane [0xFF, 0xAF]) === [0xFF, 0xAF, 0, 0]
 
+test_inv : Script ()
+test_inv = do
+  inv (-1) === 0
+  inv 0 === (-1)
+  inv minBound === maxBound
+
 test_and : Script ()
 test_and = do
   0xF1 & 0x1E3 === 0xE1
@@ -69,11 +75,14 @@ test_textToBytes1 = do
 test_textToBytes2 : Script ()
 test_textToBytes2 = do
   vectorToList (textToBytes $ TX.fromCodePoints [0x80]) === [0xC2, 0x80]
+  vectorToList (textToBytes $ TX.fromCodePoints [0x7EE]) === [0xDF, 0xAE]
 
 test_textToBytes3 : Script ()
 test_textToBytes3 = do
-  vectorToList (textToBytes "€") === [0xE2, 0x82, 0xAC]
+  vectorToList (textToBytes $ TX.fromCodePoints [0x800]) === [0xE0, 0xA0, 0x80]
+  vectorToList (textToBytes $ TX.fromCodePoints [0xA85F]) === [0xEA, 0xA1, 0x9F]
 
 test_textToBytes4 : Script ()
 test_textToBytes4 = do
-  vectorToList (textToBytes "𮀔") === [0xF0, 0xAE, 0x80, 0x94]
+  vectorToList (textToBytes $ TX.fromCodePoints [0x10000]) === [0xF0, 0x90, 0x80, 0x80]
+  vectorToList (textToBytes $ TX.fromCodePoints [0x4B1F1]) === [0xF1, 0x8B, 0x87, 0xB1]

@@ -1,0 +1,7 @@
+# Copyright (c) 2023 ASX Operations Pty Ltd. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# This file helps Daml studio to work properly when opened from this directory
+
+sdk-version: 2.2.1
+name: daml-keccak-root
