@@ -16,6 +16,8 @@ import qualified DA.Action.State as S
 import DA.Math (logBase)
 import DA.Action (replicateA)
 import qualified DA.Text as TX
+import qualified DA.Map as Map
+import qualified DA.Optional as O
 
 bitsToBytes : Int -> Int
 bitsToBytes x = (x + 7) / 8
@@ -112,34 +114,30 @@ doKeccak ks padfn permfn input = do
   spongeAbsorb buffer
   let finalBufferOffset = vectorSize buffer - ((vectorSize buffer) `mod` ks.bitrateBytes)
   hashBytes <- hashDigest finalBufferOffset buffer
-  pure . TX.asciiToLower . TX.implode $ byteToHex <$> vectorToList hashBytes
+  pure . TX.asciiToLower . TX.implode $ byteToHex <$> hashBytes
 
   where
     absorb : Int -> Vector Byte -> a ()
     absorb offset bb = do
       let findInBb idx = if idx >= ks.bitrateBytes then 0 else bb # (idx + offset)
+      let up x y l =
+            let i = (y * stateH + x) * 8 in
+            l `xor` (bytesToLane (findInBb <$> [i..i+7]))
 
-      sequence_ do
-        y <- rangeH
-        x <- rangeW
-        let i = (y * stateH + x) * 8
-        pure do
-          (x, y) <--^ bytesToLane (findInBb <$> [i..i+7])
+      S.modify (mapMatrix up)
 
-    hashDigest : Int -> Vector Byte -> a (Vector Byte)
+    hashDigest : Int -> Vector Byte -> a [Byte]
     hashDigest offset buffer = do
       spongeAbsorbFinal offset buffer
       spongeSqueeze (bitsToBytes ks.outputBits)
 
-    getBytes : Int -> a (Vector Byte)
+    getBytes : Int -> a [Byte]
     getBytes lim = do
       l <- sequence do
         y <- rangeH
         x <- rangeW
-        pure do
-          lane <- getLane (x, y)
-          pure $ laneToBytes ks.laneW lane
-      pure . listToVector . take lim $ concat l
+        pure $ laneToBytes ks.laneW <$> getLane (x, y)
+      pure . take lim $ concat l
 
     spongeAbsorb : Vector Byte -> a ()
     spongeAbsorb buffer = do
@@ -159,13 +157,13 @@ doKeccak ks padfn permfn input = do
             ]
       spongeAbsorbBlock 0 padded
 
-    spongeSqueeze : Int -> a (Vector Byte)
+    spongeSqueeze : Int -> a [Byte]
     spongeSqueeze l = do
       let iters = l / ks.bitrateBytes + (if l `mod` ks.bitrateBytes == 0 then 0 else 1)
-      z <- fmap concatVectors . replicateA iters $ spongeSqueezeOnce
-      pure (takeVector l z)
+      z <- fmap concat . replicateA iters $ spongeSqueezeOnce
+      pure (take l z)
 
-    spongeSqueezeOnce : a (Vector Byte)
+    spongeSqueezeOnce : a [Byte]
     spongeSqueezeOnce = do
       rc <- getBytes ks.bitrateBytes
       permfn ks.laneW
@@ -193,9 +191,8 @@ rotationConstants =
   in
   listToVector (listToVector <$> arr)
 
-reduce : Foldable t => (a -> a -> a) -> t a -> a
-reduce f t =
-  let l = toList t in
+reduce : (a -> a -> a) -> [a] -> a
+reduce f l =
   case l of
     x :: xs -> foldl f x xs
     [] -> error "Keccak: Internal error: Unexpected empty list"
@@ -219,27 +216,27 @@ keccak_f laneW = do
   where
     doRound : Lane -> a ()
     doRound rc = do
-      c : Vector Lane <- fmap listToVector . forA rangeH $ \x -> do
-        r <- getRow x
-        pure $ reduce xor r
-      let d : Vector Lane = listToVector do
-            x <- rangeW
-            pure $
-              (c # ((x - 1) `mod` stateW)) `xor`
-              (rol (c # ((x + 1) `mod` stateW)) 1 laneW)
-      forA_ rangeWH $ \(x, y) -> do
-        (x, y) <--^ (d # x)
-      bElems <- forA rangeWH $ \(x, y) -> do
-        lane <- getLane (x, y)
-        pure (
-            (y `mod` stateW, (2 * x + 3 * y) `mod` stateH),
-            rol lane (rotationConstants ## (y, x)) laneW
-          )
+      c : Vector Lane <- (mapVector (\x r -> reduce xor (vectorToList r))) <$> S.get
+      let dElem x _ = (c # ((x - 1) `mod` stateW)) `xor` (rol (c # ((x + 1) `mod` stateW)) 1 laneW)
+      let d : Vector Lane = mapVector dElem c
+
+      S.modify (mapMatrix (\x _ l -> l `xor` (d # x)))
+      -- forA_ rangeWH $ \(x, y) -> do
+      --   (x, y) <--^ (d # x)
+      let bElem ((x, y), lane) = (
+              (y `mod` stateW, (2 * x + 3 * y) `mod` stateH),
+              rol lane (rotationConstants ## (y, x)) laneW
+            )
+      bMap <- (\sponge -> Map.fromList $ bElem <$> matrixToList sponge) <$> S.get
       -- Matrix elements are zero by default, or use those in bElems if they are provided
-      let b : Matrix Lane = listToMatrix (matrixToList zeroState <> bElems)
-      forA_ rangeWH $ \(x, y) -> do
-        (x, y) <-- (b ## (x, y)) `xor`
-          ((inv (b ## ((x + 1) `mod` stateW, y))) & (b ## ((x + 2) `mod` stateW, y)))
+      --let b : Matrix Lane = listToMatrix (matrixToList zeroState <> bElems)
+      let up x y _ =
+            let bVal = O.fromOptional 0 (Map.lookup (x, y) bMap)
+                bVal1 = O.fromOptional 0 (Map.lookup ((x + 1) `mod` stateW, y) bMap)
+                bVal2 = O.fromOptional 0 (Map.lookup ((x + 2) `mod` stateW, y) bMap)
+            in
+            bVal `xor` ((inv bVal1) & bVal2)
+      S.modify (mapMatrix up)
       (0, 0) <--^ rc
 
 preset : KeccakSettings -> Text -> Text
