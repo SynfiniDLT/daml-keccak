@@ -13,6 +13,8 @@ module Synfini.Keccak.Internal.Data (
   listToMatrix,
   matrixToList,
   updateMatrix,
+  mapMatrix,
+  mapVector,
   (#),
   (##),
   xor,
@@ -33,50 +35,57 @@ import qualified DA.Optional as O
 import qualified DA.Map as Map
 import qualified DA.Text as TX
 
-type Vector a = Map Int a
+type Vector a = Map Int (Int, a)
 
 type Matrix a = Vector (Vector a)
 
 vectorSize : Vector a -> Int
 vectorSize = Map.size
 
+mapVector : (Int -> a -> b) -> Vector a -> Vector b
+mapVector f = fmap (\(i, x) -> (i, f i x))
+
+mapMatrix : (Int -> Int -> a -> b) -> Matrix a -> Matrix b
+mapMatrix f = mapVector (\i row -> mapVector (f i) row)
+
 listToVector : [a] -> Vector a
-listToVector l = Map.fromList (zip [0..length l - 1] l)
+listToVector l = Map.fromList (zipWith (\i x -> (i, (i, x))) [0..length l - 1] l)
 
 vectorToList : Vector a -> [a]
-vectorToList = fmap snd . Map.toList
+vectorToList = fmap snd . Map.values
 
 takeVector : Int -> Vector a -> Vector a
-takeVector n v = listToVector (fmap snd . take n $ Map.toList v)
+takeVector n v = listToVector (take n $ vectorToList v)
 
 dropVector : Int -> Vector a -> Vector a
-dropVector n v = listToVector (fmap snd . drop n $ Map.toList v)
+dropVector n v = listToVector (drop n $ vectorToList v)
 
 concatVectors : [Vector a] -> Vector a
-concatVectors vs = listToVector . fmap snd $ concatMap Map.toList vs
+concatVectors vs = listToVector $ concatMap vectorToList vs
 
 updateMatrix : Int -> Int -> a -> Matrix a -> Matrix a
 updateMatrix x y v = Map.alter u x
   where
-    u None = Some $ Map.fromList [(y, v)]
-    u (Some r) = Some $ Map.insert y v r
+    u None = Some $ (x, Map.fromList [(y, (y, v))])
+    u (Some (i, r)) = Some $ (i, Map.insert y (y, v) r)
 
 listToMatrix : [((Int, Int), a)] -> Matrix a
 listToMatrix l = foldl addElem Map.empty l
   where
-    addElem m ((x, y), value) = Map.alter (addElemInRow y value) x m
+    addElem m ((x, y), value) = Map.alter (addElemInRow x y value) x m
 
-    addElemInRow y value None = Some (Map.fromList [(y, value)])
-    addElemInRow y value (Some row) = Some (Map.insert y value row)
+    addElemInRow x y value None = Some (x, Map.fromList [(y, (y, value))])
+    addElemInRow x y value (Some (_, row)) = Some (x, Map.insert y (y, value) row)
 
 matrixToList : Matrix a -> [((Int, Int), a)]
 matrixToList m = do
-  (x, row) <- Map.toList m
-  (y, value) <- Map.toList row
+  (x, (_, row)) <- Map.toList m
+  (y, (_, value)) <- Map.toList row
   pure ((x, y), value)
 
 (#) : Vector a -> Int -> a
-m # k = O.fromSomeNote ("Keccak: Internal error: vector element not found at index: " <> show k) (Map.lookup k m)
+m # k = snd $
+  O.fromSomeNote ("Keccak: Internal error: vector element not found at index: " <> show k) (Map.lookup k m)
 infixl 3 #
 
 (##) : Matrix a -> (Int, Int) -> a

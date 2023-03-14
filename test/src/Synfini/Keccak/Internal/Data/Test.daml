@@ -56,17 +56,34 @@ test_rol : Script ()
 test_rol = do
   rol 0b11010010 5 8 === 0b01011010
 
+test_dropVector : Script ()
+test_dropVector = do
+  dropVector 3 (listToVector [1, 2, 3, 4]) === listToVector [4]
+
+test_takeVector : Script ()
+test_takeVector = do
+  takeVector 3 (listToVector [1, 2, 3, 4]) === listToVector [1, 2, 3]
+
 test_listToMatrix : Script ()
 test_listToMatrix = do
   let l = [((1, 1), 4), ((0, 0), 1), ((0, 1), 2), ((1, 0), 3), ((0, 0), 99)]
   listToMatrix l === Map.fromList [
-      (0, Map.fromList [(0, 99), (1, 2)]),
-      (1, Map.fromList [(0, 3), (1, 4)])
+      (0, (0, Map.fromList [(0, (0, 99)), (1, (1, 2))])),
+      (1, (1, Map.fromList [(0, (0, 3)), (1, (1, 4))]))
     ]
 
 test_indexMatrix : Script ()
 test_indexMatrix = do
-  Map.fromList [(0, Map.fromList [(0, 99)])] ## (0, 0) === 99
+  listToMatrix [((0, 0), 99)] ## (0, 0) === 99
+
+test_mapMatrix : Script ()
+test_mapMatrix = do
+  let mat = listToMatrix [((0, 0), 99), ((0, 1), -5), ((1, 0), 0), ((1, 1), 5)]
+  let mat' = mapMatrix (\i j v -> (i, j, v)) mat
+  mat' ## (0, 0) === (0, 0, 99)
+  mat' ## (0, 1) === (0, 1, -5)
+  mat' ## (1, 0) === (1, 0, 0)
+  mat' ## (1, 1) === (1, 1, 5)
 
 test_textToBytes1 : Script ()
 test_textToBytes1 = do

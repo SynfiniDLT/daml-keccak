@@ -38,3 +38,7 @@ test_keccak256_long_over_bitrate_2x = do
 test_keccak256_unicode_symbol : Script ()
 test_keccak256_unicode_symbol = do
   keccak256 "€" === "e35642152f35c02fe26ab99f4361ed8835f18f79f916ade14e661e460be36839"
+
+test_keccak256_multiple_unicode_symbol : Script ()
+test_keccak256_multiple_unicode_symbol = do
+  keccak256 "€A댱" === "b0c413defd359312241b2ee948fe963c239a6de0d311c48452a708df886f8402"
