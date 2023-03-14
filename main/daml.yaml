@@ -10,5 +10,5 @@ dependencies:
   - daml-stdlib
 build-options: [
   "--ghc-option", "-Wall",
-  #"--ghc-option", "-Werror"
+  "--ghc-option", "-Werror"
   ]

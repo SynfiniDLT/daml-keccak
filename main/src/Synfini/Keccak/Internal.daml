@@ -11,7 +11,7 @@ module Synfini.Keccak.Internal (
 
 import qualified DA.Action.State.Class as S
 import Synfini.Keccak.Internal.Data
-import DA.Foldable (sequence_, forA_, toList, Foldable, mapA_)
+import DA.Foldable (forA_, mapA_)
 import qualified DA.Action.State as S
 import DA.Math (logBase)
 import DA.Action (replicateA)
@@ -42,12 +42,6 @@ stateH = 5
 rangeH : [Int]
 rangeH = [0..stateH - 1] 
 
-rangeWH : [(Int, Int)]
-rangeWH = do
-  x <- rangeW
-  y <- rangeH
-  pure (x, y)
-
 zeroState : Matrix Lane
 zeroState = listToVector (replicate stateH (listToVector (replicate stateW zeroLane)))
 
@@ -72,21 +66,6 @@ keccakSettings bitrateBits capacityBits outputBits =
     Right s -> s
 
 type KeccakAction a = (Action a, S.ActionState (Matrix Lane) a)
-
-(<--) : KeccakAction a => (Int, Int) -> Lane -> a ()
-(x, y) <-- l = S.modify (updateMatrix x y l)
-infixl 3 <--
-
-(<--^) : KeccakAction a => (Int, Int) -> Lane -> a ()
-(x, y) <--^ u = do
-  l <- getLane (x, y)
-  (x, y) <-- l `xor` u
-infixl 3 <--^
-
-getRow : KeccakAction a => Int -> a (Vector Lane)
-getRow r = do
-  s <- S.get
-  pure (s # r)
 
 getLane : KeccakAction a => (Int, Int) -> a Lane
 getLane pos = do
@@ -216,20 +195,16 @@ keccak_f laneW = do
   where
     doRound : Lane -> a ()
     doRound rc = do
-      c : Vector Lane <- (mapVector (\x r -> reduce xor (vectorToList r))) <$> S.get
+      c : Vector Lane <- (mapVector (\_ r -> reduce xor (vectorToList r))) <$> S.get
       let dElem x _ = (c # ((x - 1) `mod` stateW)) `xor` (rol (c # ((x + 1) `mod` stateW)) 1 laneW)
       let d : Vector Lane = mapVector dElem c
 
       S.modify (mapMatrix (\x _ l -> l `xor` (d # x)))
-      -- forA_ rangeWH $ \(x, y) -> do
-      --   (x, y) <--^ (d # x)
       let bElem ((x, y), lane) = (
               (y `mod` stateW, (2 * x + 3 * y) `mod` stateH),
               rol lane (rotationConstants ## (y, x)) laneW
             )
       bMap <- (\sponge -> Map.fromList $ bElem <$> matrixToList sponge) <$> S.get
-      -- Matrix elements are zero by default, or use those in bElems if they are provided
-      --let b : Matrix Lane = listToMatrix (matrixToList zeroState <> bElems)
       let up x y _ =
             let bVal = O.fromOptional 0 (Map.lookup (x, y) bMap)
                 bVal1 = O.fromOptional 0 (Map.lookup ((x + 1) `mod` stateW, y) bMap)
@@ -237,7 +212,7 @@ keccak_f laneW = do
             in
             bVal `xor` ((inv bVal1) & bVal2)
       S.modify (mapMatrix up)
-      (0, 0) <--^ rc
+      S.modify $ \sponge -> updateMatrix 0 0 ((sponge ## (0, 0)) `xor` rc) sponge
 
 preset : KeccakSettings -> Text -> Text
 preset ks input = S.evalState (doKeccak ks multiratePadding keccak_f input) zeroState
